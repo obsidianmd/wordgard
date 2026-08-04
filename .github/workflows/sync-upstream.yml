@@ -1,0 +1,119 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 8 * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Prepare sync
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CONFLICT_ISSUE_TITLE: Upstream synchronization requires manual conflict resolution
+      SYNC_BRANCH: automation/upstream-sync
+    steps:
+      - name: Check out main
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://code.haverbeke.berlin/wordgard/wordgard.git
+          git fetch upstream main
+
+      - name: Prepare synchronization branch
+        id: prepare
+        continue-on-error: true
+        run: bin/prepare-upstream-sync.sh upstream/main "$SYNC_BRANCH"
+
+      - name: Fail on an unexpected preparation error
+        if: steps.prepare.outcome == 'failure' && steps.prepare.outputs.status != 'conflict'
+        run: exit 1
+
+      - name: Push branch and open or update pull request
+        if: steps.prepare.outputs.status == 'merged'
+        run: |
+          git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
+          cat > "$RUNNER_TEMP/upstream-sync-pr.md" <<EOF
+          This pull request merges canonical \`upstream/main\` at
+          \`${{ steps.prepare.outputs.upstream_sha }}\` into the maintained Obsidian fork.
+
+          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Review the diff and wait for \`CI / Test\` before merging.
+
+          Fork patch review:
+          1. Run \`git cherry -v upstream/main main\` as an advisory equivalence check.
+          2. Review every \`active\` entry in \`FORK_PATCHES.md\` against its upstream issue.
+          3. After merging this PR, mark incorporated patches \`absorbed\` with the upstream commit SHA; do not revert their historical code commits.
+          EOF
+          pr_number=$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')
+          if [[ -z $pr_number ]]; then
+            gh pr create --base main --head "$SYNC_BRANCH" \
+              --title "Merge upstream Wordgard changes" \
+              --body-file "$RUNNER_TEMP/upstream-sync-pr.md"
+          else
+            gh pr edit "$pr_number" \
+              --title "Merge upstream Wordgard changes" \
+              --body-file "$RUNNER_TEMP/upstream-sync-pr.md"
+          fi
+          gh workflow run ci.yml --ref "$SYNC_BRANCH"
+
+      - name: Create or update conflict issue
+        if: steps.prepare.outputs.status == 'conflict'
+        run: |
+          issues=$(gh issue list --state all --limit 100 --json number,state,title)
+          issue_number=$(jq -r --arg title "$CONFLICT_ISSUE_TITLE" \
+            '[.[] | select(.title == $title)][0].number // empty' <<< "$issues")
+          issue_state=$(jq -r --arg title "$CONFLICT_ISSUE_TITLE" \
+            '[.[] | select(.title == $title)][0].state // empty' <<< "$issues")
+          cat > "$RUNNER_TEMP/upstream-sync-conflict.md" <<EOF
+          Automation could not merge canonical commit
+          \`${{ steps.prepare.outputs.upstream_sha }}\` into the Obsidian fork.
+          The merge was aborted and no conflict markers were pushed.
+
+          Failed run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          Follow the manual conflict-recovery procedure in \`FORK_MAINTENANCE.md\`.
+          EOF
+          if [[ -z $issue_number ]]; then
+            gh issue create --title "$CONFLICT_ISSUE_TITLE" \
+              --body-file "$RUNNER_TEMP/upstream-sync-conflict.md"
+          else
+            if [[ $issue_state == CLOSED ]]; then
+              gh issue reopen "$issue_number"
+            fi
+            gh issue comment "$issue_number" \
+              --body-file "$RUNNER_TEMP/upstream-sync-conflict.md"
+          fi
+
+      - name: Close resolved conflict issue
+        if: steps.prepare.outputs.status == 'no_changes' || steps.prepare.outputs.status == 'merged'
+        run: |
+          issues=$(gh issue list --state open --limit 100 --json number,title)
+          issue_number=$(jq -r --arg title "$CONFLICT_ISSUE_TITLE" \
+            '[.[] | select(.title == $title)][0].number // empty' <<< "$issues")
+          if [[ -n $issue_number ]]; then
+            gh issue close "$issue_number" \
+              --comment "Upstream synchronization no longer conflicts."
+          fi
+
+      - name: Fail after reporting a conflict
+        if: steps.prepare.outputs.status == 'conflict'
+        run: exit 1
