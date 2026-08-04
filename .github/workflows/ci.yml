@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts
+
+      - name: Build
+        run: npm run prepare
+
+      - name: Run package tests
+        run: npm test
+
+      - name: Test failed-build handling
+        run: bash test/build-failure.sh
+
+      - name: Test upstream synchronization
+        run: bash test/upstream-sync.sh
+
+      - name: Lint shell scripts
+        run: shellcheck bin/prepare-upstream-sync.sh test/build-failure.sh test/upstream-sync.sh
