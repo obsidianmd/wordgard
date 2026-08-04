@@ -29,6 +29,7 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Configure Git
         run: |
@@ -36,6 +37,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://code.haverbeke.berlin/wordgard/wordgard.git
           git fetch upstream main
+
+      - name: Stage trusted orchestration helper
+        run: install -m 700 bin/upstream-sync-workflow.sh "$RUNNER_TEMP/upstream-sync-workflow.sh"
 
       - name: Prepare synchronization branch
         id: prepare
@@ -46,23 +50,45 @@ jobs:
         if: steps.prepare.outcome == 'failure' && steps.prepare.outputs.status != 'conflict'
         run: exit 1
 
-      - name: Push branch and open or update pull request
+      - name: Check whether CI workflow is trusted
+        id: trust
         if: steps.prepare.outputs.status == 'merged'
         run: |
+          "$RUNNER_TEMP/upstream-sync-workflow.sh" check-ci main HEAD
+
+      - name: Push branch and open or update pull request
+        if: steps.prepare.outputs.status == 'merged'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TRUSTED_CI: ${{ steps.trust.outputs.trusted_ci }}
+          UPSTREAM_SHA: ${{ steps.prepare.outputs.upstream_sha }}
+        run: |
+          gh auth setup-git
           git push --force origin "HEAD:refs/heads/$SYNC_BRANCH"
           cat > "$RUNNER_TEMP/upstream-sync-pr.md" <<EOF
           This pull request merges canonical \`upstream/main\` at
-          \`${{ steps.prepare.outputs.upstream_sha }}\` into the maintained Obsidian fork.
+          \`$UPSTREAM_SHA\` into the maintained Obsidian fork.
 
-          Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-          Review the diff and wait for \`CI / Test\` before merging.
+          Workflow run: $RUN_URL
 
           Fork patch review:
           1. Run \`git cherry -v upstream/main main\` as an advisory equivalence check.
           2. Review every \`active\` entry in \`FORK_PATCHES.md\` against its upstream issue.
           3. After merging this PR, mark incorporated patches \`absorbed\` with the upstream commit SHA; do not revert their historical code commits.
           EOF
+          if [[ $TRUSTED_CI == 'true' ]]; then
+            cat >> "$RUNNER_TEMP/upstream-sync-pr.md" <<'EOF'
+
+          Review the diff and wait for `CI / Test` before merging.
+          EOF
+          else
+            cat >> "$RUNNER_TEMP/upstream-sync-pr.md" <<'EOF'
+
+          > [!WARNING]
+          > CI workflow changes require manual review; automatic CI dispatch is disabled.
+          > Review `.github/workflows/ci.yml` before running any checks from this branch.
+          EOF
+          fi
           pr_number=$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')
           if [[ -z $pr_number ]]; then
             gh pr create --base main --head "$SYNC_BRANCH" \
@@ -73,22 +99,25 @@ jobs:
               --title "Merge upstream Wordgard changes" \
               --body-file "$RUNNER_TEMP/upstream-sync-pr.md"
           fi
-          gh workflow run ci.yml --ref "$SYNC_BRANCH"
+
+      - name: Dispatch trusted CI
+        if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_ci == 'true'
+        run: gh workflow run ci.yml --ref "$SYNC_BRANCH"
 
       - name: Create or update conflict issue
         if: steps.prepare.outputs.status == 'conflict'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          UPSTREAM_SHA: ${{ steps.prepare.outputs.upstream_sha }}
         run: |
-          issues=$(gh issue list --state all --limit 100 --json number,state,title)
-          issue_number=$(jq -r --arg title "$CONFLICT_ISSUE_TITLE" \
-            '[.[] | select(.title == $title)][0].number // empty' <<< "$issues")
-          issue_state=$(jq -r --arg title "$CONFLICT_ISSUE_TITLE" \
-            '[.[] | select(.title == $title)][0].state // empty' <<< "$issues")
+          issue_record=$("$RUNNER_TEMP/upstream-sync-workflow.sh" find-issue all "$CONFLICT_ISSUE_TITLE")
+          IFS=$'\t' read -r issue_number issue_state <<< "$issue_record"
           cat > "$RUNNER_TEMP/upstream-sync-conflict.md" <<EOF
           Automation could not merge canonical commit
-          \`${{ steps.prepare.outputs.upstream_sha }}\` into the Obsidian fork.
+          \`$UPSTREAM_SHA\` into the Obsidian fork.
           The merge was aborted and no conflict markers were pushed.
 
-          Failed run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          Failed run: $RUN_URL
 
           Follow the manual conflict-recovery procedure in \`FORK_MAINTENANCE.md\`.
           EOF
@@ -96,7 +125,7 @@ jobs:
             gh issue create --title "$CONFLICT_ISSUE_TITLE" \
               --body-file "$RUNNER_TEMP/upstream-sync-conflict.md"
           else
-            if [[ $issue_state == CLOSED ]]; then
+            if [[ $issue_state == closed ]]; then
               gh issue reopen "$issue_number"
             fi
             gh issue comment "$issue_number" \
@@ -106,13 +135,18 @@ jobs:
       - name: Close resolved conflict issue
         if: steps.prepare.outputs.status == 'no_changes' || steps.prepare.outputs.status == 'merged'
         run: |
-          issues=$(gh issue list --state open --limit 100 --json number,title)
-          issue_number=$(jq -r --arg title "$CONFLICT_ISSUE_TITLE" \
-            '[.[] | select(.title == $title)][0].number // empty' <<< "$issues")
+          issue_record=$("$RUNNER_TEMP/upstream-sync-workflow.sh" find-issue open "$CONFLICT_ISSUE_TITLE")
+          IFS=$'\t' read -r issue_number _ <<< "$issue_record"
           if [[ -n $issue_number ]]; then
             gh issue close "$issue_number" \
               --comment "Upstream synchronization no longer conflicts."
           fi
+
+      - name: Fail after opening a PR with changed CI
+        if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_ci == 'false'
+        run: |
+          printf 'The synchronization PR changes ci.yml; automatic CI dispatch was blocked.\n' >&2
+          exit 1
 
       - name: Fail after reporting a conflict
         if: steps.prepare.outputs.status == 'conflict'

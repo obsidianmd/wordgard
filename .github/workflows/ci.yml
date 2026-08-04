@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -41,4 +43,4 @@ jobs:
         run: bash test/upstream-sync.sh
 
       - name: Lint shell scripts
-        run: shellcheck bin/prepare-upstream-sync.sh test/build-failure.sh test/upstream-sync.sh
+        run: shellcheck bin/prepare-upstream-sync.sh bin/upstream-sync-workflow.sh test/build-failure.sh test/upstream-sync.sh

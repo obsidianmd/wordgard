@@ -31,8 +31,11 @@ git fetch origin main
 git fetch upstream main
 git switch --create sync-upstream-manual --track origin/main
 git merge --no-ff upstream/main
-# Resolve files, then:
-git add schema/code.ts
+git status
+# Resolve each conflict and stage its actual path with `git add`.
+git diff --name-only --diff-filter=U
+# The preceding command must print nothing before committing.
+git status
 git commit
 git push --set-upstream origin sync-upstream-manual
 gh pr create --base main --head sync-upstream-manual
