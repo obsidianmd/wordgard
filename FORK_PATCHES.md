@@ -20,3 +20,4 @@ After each upstream sync, run `git cherry -v upstream/main main` as an advisory 
 
 | ID | Code commit | Summary | Upstream issue | Status | Upstream commit |
 | --- | --- | --- | --- | --- | --- |
+| WG-001 | `28fa7554006b0b7a900ca4312dfef4315c1e9690` | Remove invalid `codeBlockLanguage` schema re-export | [follow-up](https://code.haverbeke.berlin/wordgard/wordgard/issues/41) | `active` | — |
