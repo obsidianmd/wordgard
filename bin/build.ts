@@ -350,4 +350,4 @@ export function watch(pkgs: readonly Package[]): void {
 }
 
 if (process.argv.includes("--watch")) watch(packages)
-else if (!await build(packages)) process.exitCode = 1
+else if (!await build(packages)) process.exit(1)
