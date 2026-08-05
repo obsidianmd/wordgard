@@ -34,7 +34,7 @@ function toggleLink(wg: Wordgard) {
       wg.focus()
       let url = form && (form.elements.namedItem("url") as HTMLInputElement)?.value
       if (url) wg.dispatch({
-        changes: selection.ranges.map(r => ({from: r.from, to: r.to, add: Link.of(url)})),
+        changes: wg.state.selection.ranges.map(r => ({from: r.from, to: r.to, add: Link.of(url)})),
         userEvent: "mark.add"
       })
     })
