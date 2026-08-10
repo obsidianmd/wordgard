@@ -1,5 +1,5 @@
 import {Wordgard, menuBar} from "wordgard/editor"
-import {fullSchema} from "wordgard/schema"
+import {fullSchema, codeBlockLanguage} from "wordgard/schema"
 import {history} from "wordgard/history"
 import {tables} from "wordgard/table"
 
@@ -8,6 +8,7 @@ import {tables} from "wordgard/table"
   doc: `<h2>Demo Content</h2><p>A <em>paragraph</em>.</p>`,
   config: [
     fullSchema(),
+    codeBlockLanguage({languages: ["JavaScript", "TypeScript", "Markdown", "C++", "Python"]}),
     history(),
     menuBar(),
     tables(),

@@ -33,6 +33,7 @@ function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Co
             pos = off
             break
           }
+          off = end
         }
         if (queried.has(pos)) return
         queried.add(pos)

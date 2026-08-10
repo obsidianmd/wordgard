@@ -1168,13 +1168,14 @@ class SectionIter {
 
   next() {
     let {sections} = this
+    this.off = 0
     if (this.i < sections.length) {
       this.len = sections[this.i++]
       this.ins = sections[this.i++]
+      if (this.len == 0 && this.ins < 0) this.next()
     } else {
       this.len = 0; this.ins = -3
     }
-    this.off = 0
   }
 
   get keep() { return this.ins == -1 || this.ins == -2 }

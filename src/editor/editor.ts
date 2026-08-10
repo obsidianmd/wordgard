@@ -96,7 +96,7 @@ export class Wordgard {
   private contentAttrs: Attributes = Attributes.none
   private styleModules!: readonly StyleModule[]
 
-  /// @internal
+  /// True when the editor is connected to a DOM document.
   connected = false
   private flushing = Flush.No
   private willFlush = false
@@ -136,7 +136,7 @@ export class Wordgard {
     this.plugins = [cursorPlugin, ...this.state.facet(editorPlugin)].map(spec => new PluginInstance(spec))
     for (let plugin of this.plugins) plugin.update(this)
     this.inputState = new InputState(this)
-    this.docTile = DocTile.create(this.state, this.contentDOM)
+    this.docTile = DocTile.create(this.state, this.contentDOM, this)
     this.updateAttrs()
     this.observer = new DOMObserver(this)
 
@@ -279,7 +279,7 @@ export class Wordgard {
       if (this.state.facet(Wordgard.styleModule) != this.styleModules) this.mountStyles()
       this.updateAttrs()
     }
-    this.docTile = prevDocTile.update(update.state, changes, this.connected, composition)
+    this.docTile = prevDocTile.update(update.state, changes, this, composition)
 
     if ((composition?.wrapCursor || !composition && (prevDocTile != this.docTile || update.selectionSet)) && this.hasFocus)
       setDOMSelection(this)

@@ -5,10 +5,12 @@ import ist from "ist"
 import {basicBuilders} from "./schema.ts"
 
 const {DocTile} = Wordgard
+const dummyEditor: Wordgard = {connected: false} as any
+
 const {doc, p, $img, hr, capFig, strong, em, code} = basicBuilders
 
 function render(doc: Plot.Doc, ...config: GardState.Extension[]) {
-  return DocTile.create(GardState.create({doc, config}), document.createElement("div"))
+  return DocTile.create(GardState.create({doc, config}), document.createElement("div"), dummyEditor)
 }
 
 function isIn(pos: {dom: Node, offset: number}, parent: string, offset: number) {

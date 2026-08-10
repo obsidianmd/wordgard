@@ -9,7 +9,7 @@
 
 export {paragraph, heading, alignment, direction, blockquote, horizontalRule} from "./block"
 export {bulletList, orderedList} from "./list"
-export {codeBlock} from "./code"
+export {codeBlock, codeBlockLanguage} from "./code"
 export {blockDoc, inlineDoc} from "./block"
 
 //- ### Inline Structure

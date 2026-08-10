@@ -39,6 +39,11 @@ export class Widget<Param = unknown> {
   readonly type: Widget.Type<unknown extends Param ? any : Param>
 
   /// @internal
+  render(wg: Wordgard) {
+    return this.type.render(this.value, wg)
+  }
+
+  /// @internal
   get hasContent() { return false }
 }
 
@@ -46,7 +51,7 @@ export namespace Widget {
   /// Specifies a widget type.
   export type Spec<Param> = {
     /// How to render the widget as DOM content.
-    render: (value: Param) => Element | Text
+    render: (value: Param, wg: Wordgard) => Element | Text
     /// Compare the widget value for equality. Will default to `===`.
     eq?: (a: Param, b: Param) => boolean
     /// Called when a widget of this type is added to an editor that
@@ -57,13 +62,17 @@ export namespace Widget {
     /// that is connected to a document, or when the editor containing
     /// the widget is disconnected.
     disconnect?: (value: Param, dom: Element | Text) => void
-    /// Called before the editor handles a DOM event that comes from
-    /// inside the widget. May return true to indicate that no further
-    /// handling of the event should happen.
-    handleEvent?: (event: Event, wg: Wordgard) => boolean
+    /// Used to determine whether events originating from the widget's
+    /// DOM should ignored by the editor. `false` or a function that
+    /// returns `false` for the event will prevent the editor's
+    /// regular event handling for the event.
+    propagateEvent?: boolean | ((event: Event) => boolean)
     /// Set this to false for widgets that either aren't visible or
     /// are positioned outside of the regular document flow.
     inFlow?: boolean
+    /// By default, widgets are set to be ineditable. Set this to
+    /// `true` to suppress that.
+    editable?: boolean
   }
 
   /// Each widget has an associated type that describes how it
@@ -71,25 +80,30 @@ export namespace Widget {
   export class Type<Param> {
     private constructor(
       /// @internal
-      readonly render: (value: Param) => Element | Text,
+      readonly render: (value: Param, wg: Wordgard) => Element | Text,
       /// @internal
       readonly eq: (a: Param, b: Param) => boolean,
       /// @internal
-      readonly handleEvent: (event: Event, wg: Wordgard) => boolean,
+      readonly propagateEvent: (event: Event) => boolean,
       /// @internal
       readonly connect: ((value: Param, dom: Element | Text) => void) | null,
       /// @internal
       readonly disconnect: ((value: Param, dom: Element | Text) => void) | null,
       /// @internal
-      readonly inFlow: boolean
+      readonly inFlow: boolean,
+      /// @internal
+      readonly editable: boolean
     ) {}
 
     /// @internal
     static new<Param>(spec: Widget.Spec<Param>) {
+      let prop = spec.propagateEvent
+      let propEvent = typeof prop == "function" ? prop : prop == null ? () => true : () => prop
       return new Type(spec.render, spec.eq || ((a, b) => a === b),
-                      spec.handleEvent || (() => false),
+                      propEvent,
                       spec.connect ?? null, spec.disconnect ?? null,
-                      spec.inFlow !== false)
+                      spec.inFlow !== false,
+                      spec.editable === true)
     }
 
     /// Create an instance of this widget type.
@@ -216,7 +230,7 @@ export namespace Decoration {
       return tagWidget.of({
         type: Node.Type.get(type),
         place: getPlace(place),
-        widget: typeof widget == "function" ? memo(widget as any) : (() => widget)
+        widget: typeof widget == "function" ? memo(widget as any) : widget
       })
     }
 
@@ -236,7 +250,7 @@ export namespace Decoration {
           return {
             type: tp,
             place: p,
-            widget: typeof w == "function" ? memo(w as any) : (() => w)
+            widget: typeof w == "function" ? memo(w as any) : w
           }
         })
       }
@@ -408,7 +422,7 @@ const tagWrapper = GardState.Facet.define<TagWrapper>()
 
 const enum WidgetPlace { Before, After, Start, End }
 
-type TagWidget = {type: Node.Type, place: WidgetPlace, widget: (tag: Node.Tag) => Widget}
+type TagWidget = {type: Node.Type, place: WidgetPlace, widget: Widget | ((tag: Node.Tag) => Widget)}
 
 const tagWidget = GardState.Facet.define<TagWidget>()
 
@@ -508,6 +522,8 @@ class WrapperRangeDecoration extends Decoration.Range {
   }
 }
 
+const enum Side { After = 1e9 }
+
 class ShapeDecoration extends Decoration.Point {
   constructor(readonly shape: Decoration.Shape) { super() }
 
@@ -516,13 +532,13 @@ class ShapeDecoration extends Decoration.Point {
   }
 
   get trackMode() { return "after" as const }
-  get side() { return 1e9 }
+  get side() { return Side.After }
 }
 
 class WidgetDecoration extends Decoration.Point {
   constructor(readonly widget: Widget, readonly side: number, readonly trackMode: ChangeSet.TrackMode | undefined) {
     super()
-    if (side >= 1e9) throw new Error("Invalid widget side")
+    if (side >= Side.After) throw new Error("Invalid widget side")
   }
 
   eq(other: PointSet.Value): boolean {
@@ -544,7 +560,7 @@ class AttributeDecoration extends Decoration.Point {
   }
 
   get trackMode() { return "after" as const }
-  get side() { return 1e9 }
+  get side() { return Side.After }
 }
 
 class WrapperDecoration extends Decoration.Point {
@@ -556,7 +572,7 @@ class WrapperDecoration extends Decoration.Point {
   }
 
   get trackMode() { return "after" as const }
-  get side() { return 1e9 }
+  get side() { return Side.After }
 }
 
 const nodeSelectionDeco = Decoration.Point.attributes({class: "wg-selected-node"})
@@ -765,9 +781,13 @@ class PointIterator<T extends PointSet.Value> {
     return this.done ? 1 : this.value!.side
   }
 
-  goto(pos: number) {
+  goto(pos: number, inclusive: boolean) {
     this.done = false
-    this.fill(findAbove(this.set.positions, 0, pos - 1))
+    let i = findAbove(this.set.positions, 0, pos - 1)
+    if (!inclusive) {
+      while (i < this.set.values.length && this.set.values[i].side < Side.After) i++
+    }
+    this.fill(i)
   }
 }
 
@@ -842,8 +862,8 @@ export class RangeSet<T extends RangeSet.Value = RangeSet.Value> {
     })
     if (!deletions) return new RangeSet<T>(this.values, from, to)
     return new RangeSet<T>(applyDel(deleted, deletions, this.values),
-                               applyDel(deleted, deletions, from),
-                               applyDel(deleted, deletions, to))
+                           applyDel(deleted, deletions, from),
+                           applyDel(deleted, deletions, to))
   }
 
   /// @internal
@@ -855,8 +875,8 @@ export class RangeSet<T extends RangeSet.Value = RangeSet.Value> {
   compareRange(fromA: number, b: RangeSet<T>, fromB: number, len: number, change: (from: number, to: number) => void) {
     let a = this, toB = fromB + len
     if (a != b || fromA != fromB) {
-      let iA = findAbove(a.from, 0, fromA - 1), lA = a.from.length
-      let iB = findAbove(b.from, 0, fromB - 1), lB = b.from.length
+      let iA = findAbove(a.to, 0, fromA - 1), lA = a.from.length
+      let iB = findAbove(b.to, 0, fromB - 1), lB = b.from.length
       let off = fromB - fromA
       let sameVals = a.values == b.values
       for (;;) {
@@ -1275,10 +1295,13 @@ export class DecoIterator {
   pos: Pos
   rangeIter: RangeIterator<Decoration.Range>[] = []
   pointIter: PointIterator<Decoration.Point>[] = []
+  endWidgets: boolean
 
   constructor(readonly state: GardState, readonly decoSet: DecoSet) {
     this.tagShapes = state.facet(tagShape)
     this.globalWidgets = state.facet(tagWidget)
+    this.endWidgets = this.globalWidgets
+      .some(w => (w.place == WidgetPlace.After || w.place == WidgetPlace.End) && typeof w.widget == "function")
     this.globalWrappers = state.facet(tagWrapper)
     this.globalAttrs = state.facet(tagAttribute)
     this.pos = state.doc.resolve(0)
@@ -1296,15 +1319,21 @@ export class DecoIterator {
   widgets(tag: Node.Tag, place: WidgetPlace, walker: DecoWalker) {
     for (let src of this.globalWidgets) {
       if (src.place == place && tag.type == src.type) {
-        let widget = src.widget(tag)
+        let widget = typeof src.widget == "function" ? src.widget(tag) : src.widget
         if (widget) walker.widget(widget, place == WidgetPlace.Before || place == WidgetPlace.End ? 1 : -1)
       }
     }
   }
 
+  hasEndWidget(type: Node.Type) {
+    return this.globalWidgets.some(tw => tw.type == type &&
+      (tw.place == WidgetPlace.End || tw.place == WidgetPlace.After) &&
+      typeof tw.widget == "function")
+  }
+
   walk(from: number, inclusiveStart: boolean, to: number, walker: DecoWalker) {
     for (let i of this.rangeIter) i.goto(from)
-    for (let i of this.pointIter) i.goto(inclusiveStart ? from : from + 1)
+    for (let i of this.pointIter) i.goto(from, inclusiveStart)
     let iter = new HeapIterator<Decoration.Range, Decoration.Point>(
       this.rangeIter.filter(i => !i.done), this.pointIter.filter(i => !i.done), from, to)
     let pos = this.pos.advance(from - this.pos.pos), started = inclusiveStart

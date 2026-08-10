@@ -507,11 +507,16 @@ function isInPrimarySelection(wg: Wordgard, event: MouseEvent) {
   return false
 }
 
+const focusEvents = new Set(["input", "beforeinput", "keydown", "keyup", "keypress", "copy", "cut", "paste"])
+
 function eventBelongsToEditor(wg: Wordgard, event: Event): boolean {
-  if (!event.bubbles) return true
   if (event.defaultPrevented) return false
+  if (!event.bubbles) return true
+  let active = wg.root.activeElement
   for (let node = event.target as DOMNode | null, tile; node != wg.contentDOM; node = node.parentNode)
-    if (!node || node.nodeType == 11 || (tile = Tile.get(node)) && tile.handleEvent(event, wg))
+    if (!node || node.nodeType == 11 ||
+        (tile = Tile.get(node)) && tile.ignoreEvent(event) ||
+        node == active && focusEvents.has(event.type))
       return false
   return true
 }
