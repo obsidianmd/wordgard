@@ -174,7 +174,7 @@ function sameCell(a: number, b: number) {
 
 // Compute a table map.
 function computeMap(table: Plot) {
-  if (table.tag != Table) throw new RangeError(`Not a table node: ${table.type.name}`)
+  if (table.type != Table.type) throw new RangeError(`Not a table node: ${table.type.name}`)
   let width = (table.content[0] as Plot).content.reduce((w, c) => w + (c.mark(ColSpan) ?? 1), 0)
   let height = table.content.length
   let map: number[] = [], problems: Problem[] | null = null

@@ -61,7 +61,7 @@ describe("coordsAtPos", () => {
 
   it("works around hard breaks", () => {
     let wg = tempEditor(doc(p("ab", br, "cd")))
-    let p3 = wg.coordsAtPos(3), p4 = wg.coordsAtPos(4)
+    let p3 = wg.coordsAtPos(3), p4 = wg.coordsAtPos(4, 1)
     ist(p3.bottom, p4.top, "<=")
     ist(P(wg, p3.left - 1, p3.top + 1), "3<")
     ist(P(wg, p3.left + 1, p3.top + 1), "3<")

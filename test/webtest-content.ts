@@ -1,7 +1,7 @@
 import {Wordgard, Decoration, Widget, PointSet, RangeSet} from "wordgard/editor"
 import {GardState, Transaction} from "wordgard/state"
 import {Plot, Leaf, Node, Elt, Mark, Token} from "wordgard/doc"
-import {CodeBlock, Emphasis, Strong, Paragraph, Blockquote, Image, ImageAlt, HorizontalRule} from "wordgard/types"
+import {CodeBlock, Emphasis, Strong, Paragraph, Heading, Blockquote, Image, ImageAlt, HorizontalRule} from "wordgard/types"
 import ist from "ist"
 import {builder, basicBuilders, tableSchema} from "./schema.ts"
 import {rDoc, rChangeSpec} from "./generate.ts"
@@ -10,14 +10,17 @@ const {DocTile} = Wordgard
 const {doc, p, blockquote, h2, ul, li, br, $img, img, imgAlt, hr, strong, em, table, tr, td} = basicBuilders
 
 type DocTile = InstanceType<typeof DocTile>
+const dummyEditor: Wordgard = {connected: false} as any
+
+const uned = ` contenteditable="false"`
 
 function render(doc: Plot.Doc, ...config: GardState.Extension[]): DocTile {
-  return DocTile.create(GardState.create({doc, config}), document.createElement("div"))
+  return DocTile.create(GardState.create({doc, config}), document.createElement("div"), dummyEditor)
 }
 
 function update(node: InstanceType<typeof DocTile>, spec: Transaction.Spec) {
   let tr = node.state.update(spec)
-  return node.update(tr.state, tr.changes.sections)
+  return node.update(tr.state, tr.changes.sections, dummyEditor)
 }
 
 function span(text: string) {
@@ -26,7 +29,7 @@ function span(text: string) {
   return s
 }
 
-const inlineWidget = Widget.define<string>({render: span})
+const inlineWidget = Widget.define<string>({render: span, editable: true})
 
 function compareDOM(a: Element | Text, b: Element | Text) {
   if (a instanceof Element) {
@@ -74,7 +77,7 @@ describe("DocTile", () => {
     let alt = builder(Alt), img = builder(Img)
     Plot.Doc.noValidate(() => {
       ist(render(doc(p(alt("x", img)))).dom.innerHTML,
-          '<p><span class="my-img"><img alt="x" src="/x.webp"></span></p>')
+          `<p><span class="my-img"${uned}><img alt="x" src="/x.webp"></span></p>`)
     })
   })
 
@@ -250,7 +253,6 @@ describe("DocTile", () => {
         doc = tile.state.doc
       }
       if (!compareDOM(render(doc).dom, tile.dom)) {
-        console.log(start + "", log)
         ist(render(doc).dom.innerHTML, tile.dom.innerHTML)
       }
     }
@@ -286,6 +288,24 @@ describe("DocTile", () => {
       for (let i = 0; i < widgets.length; i++) ist(newWidgets[i], widgets[i])
     })
 
+    it("updates tag widgets at the end of a changed plot", () => {
+      let node = render(doc(p("x"), h2("y")), [
+        Decoration.Tag.widget(Heading, "end", t => inlineWidget.of("E" + t.param)),
+        Decoration.Tag.widget(Heading, "after", t => inlineWidget.of("A" + t.param))
+      ])
+      ist(node.dom.innerHTML, `<p>x</p><h2>y<span>E2</span></h2><span>A2</span>`)
+      node = update(node, {changes: [
+        {from: 0, to: 1, insert: [Heading.of(2)]},
+        {from: 3, to: 4, insert: [Heading.of(3)]}
+      ]})
+      ist(node.dom.innerHTML, `<h2>x<span>E2</span></h2><span>A2</span><h3>y<span>E3</span></h3><span>A3</span>`)
+      node = update(node, {changes: [
+        {from: 0, to: 1, insert: [Paragraph]},
+        {from: 3, to: 4, insert: [Paragraph]}
+      ]})
+      ist(node.dom.innerHTML, `<p>x</p><p>y</p>`)
+    })
+
     it("doesn't break spanning wrappers on widgets", () => {
       let src = (side: "before" | "after" | "start" | "end") => Decoration.Tag.widget(Image, side, inlineWidget.of(side))
       let node = render(doc(p(strong("x", $img, "y"))), src("before"), src("after"))
@@ -297,7 +317,7 @@ describe("DocTile", () => {
       let elts = node.dom.querySelectorAll("*")
       let tr1 = node.state.update({changes: {from: 1, to: 12, remove: Strong}})
       let tr2 = tr1.state.update({changes: {from: 1, to: 12, add: Strong}})
-      node = node.update(tr2.state, tr1.changes.compose(tr2.changes).sections)
+      node = node.update(tr2.state, tr1.changes.compose(tr2.changes).sections, dummyEditor)
       let newElts = node.dom.querySelectorAll("*")
       ist(newElts.length, elts.length)
       for (let i = 0; i < elts.length; i++) ist(newElts[i], elts[i])
@@ -332,7 +352,7 @@ describe("DocTile", () => {
     })
 
     it("orders widgets by side", () => {
-      let w = (n: number) => Widget.create({render: () => span(n + "")})
+      let w = (n: number) => Widget.create({render: () => span(n + ""), editable: true})
       let src = (s: number) => Decoration.Point.source.of(() => PointSet.create([[2, Decoration.Point.widget(w(s), {side: s})]]))
       ist(render(doc(p("xy")), src(1), src(-2), src(-1)).dom.innerHTML,
           "<p>x<span>-2</span><span>-1</span><span>1</span>y</p>")
@@ -340,7 +360,8 @@ describe("DocTile", () => {
 
     it("can redraw widgets at the end of the document", () => {
       let widget = Widget.define({
-        render: v => Object.assign(document.createElement("b"), {textContent: v})
+        render: v => Object.assign(document.createElement("b"), {textContent: v}),
+        editable: true
       })
       let flip = Transaction.Effect.define()
       let field = GardState.Field.define({
@@ -369,7 +390,7 @@ describe("DocTile", () => {
       let pWrap = Decoration.Tag.wrapper(Paragraph, Elt.mk("div", {class: "pwrap"}, [0]))
       let iWrap = Decoration.Tag.wrapper(Image, Elt.mk("image", [0]))
       ist(render(doc(p("a", $img)), [pWrap, iWrap]).dom.innerHTML,
-          "<div class=\"pwrap\"><p>a<image><img src=\"test.png\"></image></p></div>")
+          `<div class="pwrap"><p>a<image${uned}><img src="test.png"></image></p></div>`)
     })
 
     it("updates wrappers when they change", () => {
@@ -412,6 +433,20 @@ describe("DocTile", () => {
       ist(node.dom.firstChild, para)
     })
 
+    it("doesn't drop point decorations directly after a change", () => {
+      let classes = Decoration.Point.source.of(s => {
+        return PointSet.create(add => {
+          let i = 0
+          s.doc.iterate((node, pos) => {
+            if (node.type == Paragraph.type)
+              add(pos, Decoration.Point.attributes({"class": `c${++i % 3}`}))
+          })
+        })
+      })
+      let node = update(render(doc(p("a"), p("b"), p("c")), classes), {changes: {from: 0, to: 3}})
+      ist(node.dom.innerHTML, `<p class="c1">b</p><p class="c2">c</p>`)
+    })
+
     it("can take wrappers from spans", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
         return RangeSet.create([[2, 5, Decoration.Range.wrapper("span", {attributes: {class: "a"}})]])
@@ -424,10 +459,19 @@ describe("DocTile", () => {
       })).dom.innerHTML, "<p>ab<img alt=\"a test\" src=\"test.png\">cd</p>")
     })
 
+    it("notices changes to spans that start before a preserved section", () => {
+      ist(update(render(doc(p("abcd")), Decoration.Range.source.of(s => {
+        let wrap = Decoration.Range.wrapper("span", {attributes: {class: s.doc.length % 2 ? "x" : "y"}})
+        return RangeSet.create([[1, s.doc.length - 1, wrap]])
+      })), {
+        changes: {from: 3, insert: [Leaf.text("/")]}
+      }).dom.innerHTML, `<p><span class="x">ab/cd</span></p>`)
+    })
+
     it("can override a specific leaf node's shape", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
         return PointSet.create([[3, Decoration.Point.shape(Elt.mk("span", ["!"]))]])
-      })).dom.innerHTML, "<p>ab<span>!</span>cd</p>")
+      })).dom.innerHTML, `<p>ab<span${uned}>!</span>cd</p>`)
     })
 
     it("can override a specific non-leaf node's shape", () => {
@@ -439,7 +483,7 @@ describe("DocTile", () => {
     it("can give a plot with atomic shape", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
         return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", ["?"]))]])
-      })).dom.innerHTML, "<div>?</div>")
+      })).dom.innerHTML, `<div${uned}>?</div>`)
     })
 
     it("can dynamically redraw a plot as an atom", () => {
@@ -447,7 +491,7 @@ describe("DocTile", () => {
       tile = update(tile, {effects: GardState.appendConfig.of(Decoration.Point.source.of(state => {
         return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", ["?"]))]])
       }))})
-      ist(tile.dom.innerHTML, "<div>?</div>")
+      ist(tile.dom.innerHTML, `<div${uned}>?</div>`)
     })
 
     it("can dynamically redraw an atom plot as a regular plot", () => {
@@ -499,28 +543,28 @@ describe("DocTile", () => {
 
     it("can replace the shape of a node type", () => {
       let tile = render(doc(p("a", $img, "b")), Decoration.Tag.shape(Image, Elt.mk("span", {"class": "img"})))
-      ist(tile.dom.innerHTML, `<p>a<span class="img"></span>b</p>`)
+      ist(tile.dom.innerHTML, `<p>a<span class="img"${uned}></span>b</p>`)
     })
 
     it("can handle changes inside atomic plots", () => {
       let tile = render(doc(p("abcd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       let para = tile.dom.querySelector("para")
       tile = update(tile, {changes: {from: 1, insert: [Leaf.text("--")]}})
-      ist(tile.dom.innerHTML, `<para></para>`)
+      ist(tile.dom.innerHTML, `<para${uned}></para>`)
       ist(tile.dom.querySelector("para"), para)
     })
 
     it("can handle deletion inside an atomic plot", () => {
       let tile = render(doc(p("abcd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       tile = update(tile, {changes: {from: 2, to: 4}})
-      ist(tile.dom.innerHTML, `<para></para>`)
+      ist(tile.dom.innerHTML, `<para${uned}></para>`)
       ist(tile.children[0].length, 4)
     })
 
     it("can handle changes covering parts of atomic plots", () => {
       let tile = render(doc(p("ab"), p("cd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       tile = update(tile, {changes: {from: 2, to: 6}})
-      ist(tile.dom.innerHTML, `<para></para>`)
+      ist(tile.dom.innerHTML, `<para${uned}></para>`)
     })
 
     it("can handle changes covering parts of wrapped atomic plots", () => {
@@ -529,20 +573,20 @@ describe("DocTile", () => {
         Decoration.Tag.wrapper(Paragraph, Elt.mk("outer", [0]))
       ])
       tile = update(tile, {changes: {from: 2, to: 6, insert: [Plot.End, Paragraph]}})
-      ist(tile.dom.innerHTML, `<outer><para></para></outer><outer><para></para></outer>`)
+      ist(tile.dom.innerHTML, `<outer${uned}><para></para></outer><outer${uned}><para></para></outer>`)
     })
 
     it("can handle changes covering the start of atomic plots", () => {
       let tile = render(doc(h2("ab"), p("cd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       tile = update(tile, {changes: {from: 2, to: 6, insert: [Plot.End, Paragraph]}})
-      ist(tile.dom.innerHTML, `<h2>a</h2><para></para>`)
+      ist(tile.dom.innerHTML, `<h2>a</h2><para${uned}></para>`)
     })
 
     it("supports selectors for wrapper decorations", () => {
       let complexImg = Decoration.Tag.shape(Image, i => Elt.mk("span", {class: "my-image"}, [Elt.mk("img", {src: i.param})]))
       let deco = PointSet.create([[2, Decoration.Point.wrapper(Elt.mk("span", {class: "inner"}, [0]), {target: "img"})]])
       let tile = render(doc(p("»", $img)), [complexImg, Decoration.Point.source.of(() => deco)])
-      ist(tile.dom.innerHTML, '<p>»<span class="my-image"><span class="inner"><img src="test.png"></span></span></p>')
+      ist(tile.dom.innerHTML, `<p>»<span class="my-image"${uned}><span class="inner"><img src="test.png"></span></span></p>`)
     })
 
     it("can reuse DOM structure when adding a shape wrapper", () => {
@@ -589,7 +633,7 @@ describe("DocTile", () => {
           return PointSet.create([[0, Decoration.Point.shape(Elt.mk("para"))]])
         }))
       })
-      ist(tile.dom.innerHTML, "<para></para>")
+      ist(tile.dom.innerHTML, `<para${uned}></para>`)
     })
 
     it("supports dynamic shapes", () => {

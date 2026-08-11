@@ -2,7 +2,7 @@ import {GardState} from "wordgard/state"
 import {CodeBlock, CodeBlockLanguage} from "wordgard/types"
 import {phrases} from "wordgard/phrases"
 import {Command, enter, Menu, setTextblockType} from "wordgard/command"
-import {KeyBinding} from "wordgard/editor"
+import {Wordgard, KeyBinding, Decoration, Widget} from "wordgard/editor"
 import {selectionInType} from "./block"
 
 /// Extensions to add support for code blocks. Includes the {@link
@@ -53,4 +53,111 @@ export namespace codeBlock {
       scrollIntoView: true
     }
   }))
+}
+
+/// Add support for the code block {@link CodeBlockLanguage language
+/// mark}.
+export function codeBlockLanguage(options: {
+  /// When given, show a drop-down menu in the corner of code blocks
+  /// that allows the user to choose a language for block from the
+  /// given list of strings. The actual mark value will be the
+  /// lower-case form of the selected language name.
+  languages?: readonly string[]
+} = {}): GardState.Extension {
+  return [
+    GardState.schemaElement.of(CodeBlockLanguage),
+    options.languages ? [
+      languageStyles,
+      languageOptions.of(options.languages),
+      languageSelect,
+      codeBlockLanguage.selectLanguageBinding
+    ] : []
+  ]
+}
+
+const languageStyles = Wordgard.styles({
+  pre: {
+    position: "relative",
+    "& select.wg-code-language": {
+      font: "var(--wg-dialog-font)",
+      fontSize: "70%",
+      position: "absolute",
+      top: "2px",
+      right: "4px",
+      border: "none",
+      borderRadius: "4px"
+    }
+  }
+})
+
+const languageOptions = GardState.Facet.define<readonly string[], readonly string[]>({
+  combine: input => input.reduce((a, b) => a.concat(b), [])
+})
+
+function option(text: string, selected: boolean, value: string) {
+  let node = document.createElement("option")
+  node.textContent = text
+  node.value = value
+  if (selected) node.selected = true
+  return node
+}
+
+const languageWidget = Widget.define<{options: readonly string[], value: string | undefined}>({
+  render({options, value}, wg) {
+    let sel = document.createElement("select")
+    sel.className = "wg-code-language"
+    sel.tabIndex = -1
+    sel.appendChild(option("Plain", value == null, ""))
+    let selected = value && options.find(o => o.toLowerCase() == value)
+    if (value && !selected) sel.appendChild(option(value, true, value))
+    for (let opt of options) sel.appendChild(option(opt, opt == selected, opt.toLowerCase()))
+    sel.onchange = () => {
+      let value = sel.value || undefined
+      let pos = wg.posAtDOM(sel.parentNode!)
+      let block = pos > 0 && wg.state.doc.nodeAt(pos - 1)
+      if (block && block.type == CodeBlock.type && block.mark(CodeBlockLanguage) != value) {
+        wg.dispatch({
+          changes: value ? {from: pos - 1, add: CodeBlockLanguage.of(value)} :
+            {from: pos - 1, remove: CodeBlockLanguage.isInSet(block.tag.marks)!}
+        })
+        wg.focus()
+      }
+    }
+    return sel
+  },
+  propagateEvent: false,
+  eq(a, b) {
+    return a.value == b.value && a.options.length == b.options.length &&
+      a.options.every((o, i) => o == b.options[i])
+  },
+  inFlow: false
+})
+
+const languageSelect = Decoration.Tag.widget.dynamic(CodeBlock, "end", state => {
+  let options = state.facet(languageOptions)
+  return tag => {
+    return languageWidget.of({options, value: tag.mark(CodeBlockLanguage)})
+  }
+})
+
+export namespace codeBlockLanguage {
+  /// If the selection is in a code block, and language selection is
+  /// enabled, this command focuses the language field to allow
+  /// selection via the keyboard.
+  export const selectLanguage: Command = wg => {
+    let blk = wg.state.sel.head.textblockParent
+    if (!blk || blk.node.type != CodeBlock.type) return false
+    let sel = wg.nodeDOM(blk.before)?.querySelector("select.wg-code-language") as HTMLSelectElement
+    if (!sel) return false
+    sel.focus()
+    sel.showPicker()
+    return true
+  }
+
+  /// Key binding that binds Shift-Ctrl-l (Shift-Cmd-l on MacOS) to
+  /// {@link codeBlockLanguage.selectLanguage `selectLanguage`}.
+  export const selectLanguageBinding = KeyBinding.of({
+    key: "Shift-Mod-l",
+    run: codeBlockLanguage.selectLanguage
+  })
 }
