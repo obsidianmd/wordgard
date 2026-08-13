@@ -1101,13 +1101,21 @@ class ContentUpdate {
     }
   }
 
-  ensureBR() {
+  ensureHackNode() {
     let tile = this.new
     if (!tile.isPlotContent) return
     while (tile.isNodeInner) tile = tile.parent!
     let node = tile.node
-    if (!node || !node.isPlot || !node.isTextblock) return
+    if (!node || !node.isPlot || !(node.isTextblock || node.type.isInline)) return
 
+    // Empty inline plots get an image node
+    if (node.type.isInline) {
+      if (!this.new.children.length)
+        this.new.addChild(new WidgetTile(imgHack, null, TileFlag.Point | TileFlag.PointAfter, imgHack.render(this.wg)))
+      return
+    }
+
+    // Textblocks get a trailing <br> if necessary
     let hasHack = -1, needsHack = true
     for (let parent = this.new, i = parent.children.length;;) {
       if (i > 0) {
@@ -1140,7 +1148,7 @@ class ContentUpdate {
   }
 
   up() {
-    this.ensureBR()
+    this.ensureHackNode()
     this.new = this.new.parent!
   }
 
@@ -1221,7 +1229,7 @@ class ContentUpdate {
 
   finish() {
     while (!(this.new instanceof DocTile)) this.up()
-    this.ensureBR()
+    this.ensureHackNode()
     return this.new
   }
 }
@@ -1263,7 +1271,11 @@ const brHack = Widget.create({
 })
 
 const imgHack = Widget.create({
-  render() { return document.createElement("img") },
+  render() {
+    let img = document.createElement("img")
+    img.className = "wg-buffer"
+    return img
+  },
   editable: true
 })
 

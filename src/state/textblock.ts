@@ -77,7 +77,7 @@ export class TextblockMap {
             sections.push((ch.length << Section.Shift) | Section.Atom)
             sectionPos = pos + ch.length
           }
-        } else if (ch.type.spec.cursorInsideBounds) {
+        } else if (ch.type.cursorInsideBounds) {
           text += " "
           scan(ch, pos + 1)
           text += " "

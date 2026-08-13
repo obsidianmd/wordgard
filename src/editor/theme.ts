@@ -103,6 +103,13 @@ export const baseStyles = buildTheme("." + styleID, {
     borderLeft: "1.8px solid currentColor",
     marginLeft: "-0.9px",
   },
+  ".wg-cursor-v.wg-cursor-bold": {
+    borderLeft: "2.4px solid currentColor",
+    marginLeft: "-1.2px",
+  },
+  ".wg-cursor-v.wg-cursor-italic": {
+    transform: "rotate(10deg)"
+  },
   ".wg-cursor-h": {
     borderTop: "1.8px solid currentColor",
     marginTop: "-0.9px",
@@ -112,6 +119,11 @@ export const baseStyles = buildTheme("." + styleID, {
     "&::selection, & *::selection": {
       backgroundColor: "transparent"
     }
+  },
+
+  ".wg-buffer": {
+    verticalAlign: "bottom",
+    height: "1em",
   },
 
   "wg-placeholder": {

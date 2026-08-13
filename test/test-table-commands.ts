@@ -86,7 +86,7 @@ describe("deleteRow", () => {
 
   it("can delete the first row", () =>
     test(doc(table(tr(td("a", 0)), tr(td("b")), tr(td("c")))), del,
-         doc(0, table(tr(td("b")), tr(td("c"))))))
+         doc(table(tr(td(0, "b")), tr(td("c"))))))
 
   it("can delete the last row", () =>
     test(doc(table(tr(td("a")), tr(td("b")), tr(td("c", 0)))), del,
@@ -136,7 +136,7 @@ describe("deleteColumn", () => {
 
   it("can delete the first column", () =>
     test(doc(table(tr(td("a", 0), td("b"), td("c")))), del,
-         doc(0, table(tr(td("b"), td("c"))))))
+         doc(table(tr(td(0, "b"), td("c"))))))
 
   it("can delete the last column", () =>
     test(doc(table(tr(td("a"), td("b"), td("c", 0)))), del,

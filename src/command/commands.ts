@@ -4,7 +4,7 @@ import {type Wordgard} from "wordgard/editor"
 import {Alignment, Direction, Emphasis, Strong, Underline} from "wordgard/types"
 import {Command} from "./command"
 import {joinForward, joinBackward, liftEmptyBlock, clearNonFitting, autoJoinBlocks,
-        deleteSelection, deleteEmptyTextblock, deleteForward, deleteBackward,
+        deleteSelection, deleteEmptyPlot, deleteForward, deleteBackward,
         splitTextblock, joinListItems, findUnwrappable, doUnwrapBlock,
         findWrappable, wrapBlockRange,
         canAddMarkInRange, selectedTextblocks} from "./helper"
@@ -59,7 +59,7 @@ export const insertLineBreak: Command.Pure = ({state}) => {
 /// The command that handles enter presses. The default handler will,
 /// if the selection is not in an inline context, insert an empty
 /// default textblock in its position. Otherwise it first tries
-/// `liftEmptyTextblock`, then `splitTextblock`.
+/// `liftEmptyBlock`, then `splitTextblock`.
 export const enter: Command.Pure = ({state}) => {
   if (state.readOnly) return false
   let {sel, doc} = state
@@ -94,8 +94,8 @@ export const enter: Command.Pure = ({state}) => {
 export const deleteUnit: Command.Pure<"forward" | "backward"> = ({state}, dir) => {
   if (state.readOnly) return false
   return deleteSelection(state) || (dir == "forward"
-    ? joinForward(state) || deleteForward(state) || deleteEmptyTextblock(state, 1)
-    : joinListItems(state) || joinBackward(state) || deleteBackward(state) || deleteEmptyTextblock(state, -1))
+    ? joinForward(state) || deleteForward(state) || deleteEmptyPlot(state, 1)
+    : joinListItems(state) || joinBackward(state) || deleteBackward(state) || deleteEmptyPlot(state, -1))
 }
 
 /// Delete the selection, or the word next to it. Will behave like
@@ -104,8 +104,8 @@ export const deleteUnit: Command.Pure<"forward" | "backward"> = ({state}, dir) =
 export const deleteWord: Command.Pure<"forward" | "backward"> = ({state}, dir) => {
   if (state.readOnly) return false
   return deleteSelection(state) || (dir == "forward"
-    ? joinForward(state) || deleteForward(state, true) || deleteEmptyTextblock(state, 1)
-    : joinListItems(state) || joinBackward(state) || deleteBackward(state, true) || deleteEmptyTextblock(state, -1))
+    ? joinForward(state) || deleteForward(state, true) || deleteEmptyPlot(state, 1)
+    : joinListItems(state) || joinBackward(state) || deleteBackward(state, true) || deleteEmptyPlot(state, -1))
 }
 
 /// Delete to the end or start of the line. Stops at line wrapping
@@ -467,8 +467,7 @@ export const moveByUnit: Command.Pure<{dir: "left" | "right" | "forward" | "back
 ) => {
   let forward = isForward(dir, state), selection = asTextSel(state.selection, forward)
   if (!selection.empty && !extend) {
-    let next = selection.normalCursorAtBound(state, forward)
-    return next ? setSelection(next) : false
+    return setSelection(GardSelection.near(state, forward ? selection.to : selection.from, forward ? -1 : 1))
   } else {
     let next: GardSelection | null = selection.nextNormalCursor(state, forward)
     if (!next) return false
@@ -503,10 +502,10 @@ function nextVertical(wg: Wordgard, sel: GardSelection, forward: boolean,
 /// true, keep the anchor in place.
 export const moveByLine: Command<{dir: "up" | "down", extend?: boolean}> = (wg, {dir, extend}) => {
   let {state} = wg, {selection} = state, forward = dir == "down"
-  if (state.selection instanceof GardSelection.Node) {
-    let next = !extend && state.selection.normalCursorAtBound(state, forward)
+  if (selection instanceof GardSelection.Node) {
+    let next = !extend && GardSelection.near(state, forward ? selection.to : selection.from, forward ? -1 : 1)
     if (next && !state.doc.resolve(next.head).parent.node.inlineContent)
-      return setSelection(GardSelection.cursor(next.head, next.headSide, state.selection.goalColumn))
+      return setSelection(GardSelection.cursor(next.head, next.headSide, selection.goalColumn))
     selection = GardSelection.cursor(forward ? selection.to : selection.from, undefined, selection.goalColumn)
   } else {
     selection = asTextSel(state.selection, forward)

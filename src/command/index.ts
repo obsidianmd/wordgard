@@ -96,7 +96,7 @@ export {
   deleteSelection,
   deleteBackward,
   deleteForward,
-  deleteEmptyTextblock,
+  deleteEmptyPlot,
   joinBackward,
   joinListItems,
   joinForward,
