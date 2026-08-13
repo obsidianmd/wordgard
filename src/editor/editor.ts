@@ -16,7 +16,7 @@ import {ViewState, scrollIntoView, ScrollTarget} from "./viewstate"
 import browser from "./browser"
 import {DOMNode, getRoot, clearScratchRange, scrollRectIntoView} from "./dom"
 import {setDOMSelection, moveVertically, moveToLineBoundary} from "./selection"
-import {cursorBlinkRate, cursorLayer} from "./drawcursor"
+import {cursorBlinkRate, CursorLayer} from "./drawcursor"
 import {exceptionSink, logException} from "./util"
 
 const dirCompartment = GardState.Compartment.define()
@@ -474,7 +474,7 @@ export class Wordgard {
   /// another strategy to get reasonable coordinates).
   coordsAtPos(pos: number, assoc: -1 | 1 = -1): DOMRect {
     this.ensureFlushed()
-    return coordsAtPos(this, pos, assoc)
+    return coordsAtPos(this, pos, assoc).rect
   }
 
   /// Return the rectangle around a given node or character. If there
@@ -1073,7 +1073,7 @@ export namespace Wordgard {
 
 export const editorPlugin = GardState.Facet.define<Wordgard.Plugin<Wordgard.Plugin.Value>>()
 
-const cursorPlugin: Wordgard.Plugin<any> = Wordgard.Plugin.fromClass(cursorLayer)
+const cursorPlugin: Wordgard.Plugin<any> = Wordgard.Plugin.fromClass(CursorLayer)
 
 class PluginInstance {
   // When starting an update, all plugins have this field set to the

@@ -478,6 +478,15 @@ const baseTagShape = memo((tag: Node.Tag): Decoration.Shape => {
     : tag.type.shape.create(tag.param), tag)
 })
 
+export function renderMarks(marks: Mark.Set, around: string) {
+  let result = addMarkAttributes(Elt.create("span", Attributes.none, [around]), Leaf.text(around, marks))
+  for (let i = marks.length - 1; i >= 0; i--) {
+    let mark = marks[i]
+    if (mark.type.element) result = renderMarkWrapper(mark).fill([result])
+  }
+  return (result as Elt<string>).toDOM()
+}
+
 const enum DecorationScope {
   Atom = 1,
   InlineAtom = 2,
@@ -1281,7 +1290,7 @@ export function renderWrapper(src: WrapperSource): DecoElt {
   return renderMarkWrapper(src)
 }
 
-export const renderMarkWrapper = memo((mark: Mark<any>) => {
+export const renderMarkWrapper = memo((mark: Mark<any>): DecoElt => {
   let shape = mark.type.element!
   return Elt.create(shape.name, shape.attrs(mark.value), Elt.hole)
 })

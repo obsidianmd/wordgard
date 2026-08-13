@@ -1,3 +1,45 @@
+## 0.4.0 (2026-08-10)
+
+### Breaking changes
+
+Drop support for `Widget.Spec.handleEvent`, which was unreliable, and provide `propagateEvent` instead.
+
+### Bug fixes
+
+Fix an issue in the handling of inline nodes with content.
+
+Fix a crash in `parse.slice` when running into multiple block elements that don't match any parse rule.
+
+Make autocapitalization work better on iOS and Android by not handling Enter and Backspace on the key event level.
+
+Fix an issue where comparing attributes would sometimes fail to pick up changes.
+
+Make the link button work properly when the document was changed while the link dialog was open.
+
+Fix bug where `TableMap` refused to read tables with marks.
+
+Fix an issue where range decoration updates sometimes don't affect the rendered document after a document change.
+
+Fix an issue where point decorations affecting the node after the point would sometimes get dropped when replacing content before the node.
+
+Make sure tag widgets at end of or after a plot get updated when the plot's tag changes.
+
+Fix a crash when a correction matched a text node that was merged to an adjacent node by the change.
+
+Mark widgets and atom nodes inside the editor as uneditable to avoid odd editing behavior.
+
+### New features
+
+`Widget.Spec.inFlow` can now be used to indicate that a widget isn't part of the regular document flow.
+
+The new `codeBlockLanguage` extension bundle allows you to add code block language selection to your configuration.
+
+Widget `render` methods now receive the editor instance as second argument.
+
+`codeBlockLanguage` now provides a key binding to select the current block's language.
+
+`Plot.iterate` can now iterate backwards if given a start position above the end position.
+
 ## 0.3.1 (2026-07-16)
 
 ### Bug fixes

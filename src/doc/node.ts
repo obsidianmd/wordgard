@@ -552,13 +552,24 @@ export class Plot implements Node.Shared {
   /// node that overlaps the given range, outer nodes before inner
   /// nodes. When the function returns `false` for a node, descendents
   /// of that node are not iterated.
+  ///
+  /// When `from` is greater than `to`, iteration happens in inverted
+  /// order, yielding later siblings before earlier ones.
+  ///
+  /// Note that positions passed to the callback are relative to the
+  /// start of the node this method is called on. That will usually be
+  /// the document, in which case they are normal document positions,
+  /// but you can also call it on an arbitrary plot, in which case
+  /// they are local positions.
   iterate(from: number, to: number, f: (node: Node, pos: number, parent: Plot | null, index: number) => boolean | void): void
   iterate(f: (node: Node, pos: number, parent: Plot | null, index: number) => boolean | void): void
   iterate(a: number | ((node: Node, pos: number, parent: Plot | null, index: number) => boolean | void),
           b?: number, c?: (node: Node, pos: number, parent: Plot | null, index: number) => boolean | void): void {
     let [from, to, f] = typeof a == "number" ? [a, b!, c!] : [0, this.length, a]
-    if (this.isDoc || f(this, 0, null, 0) !== false)
-      this.iterInner(0, from, to, f)
+    if (this.isDoc || f(this, 0, null, 0) !== false) {
+      if (to < from) this.iterBack(this.contentLength, to, from, f)
+      else this.iterInner(0, from, to, f)
+    }
   }
 
   /// Return the node that starts at the given offset from this node's
@@ -608,8 +619,18 @@ export class Plot implements Node.Shared {
       if (pos >= to) break
       let node = this.content[i], start = pos
       pos += node.length
-      if (pos <= from) continue
-      if (f(node, start, this, i) !== false && node.isPlot) node.iterInner(start + 1, from, to, f)
+      if (pos > from && f(node, start, this, i) !== false && node.isPlot) node.iterInner(start + 1, from, to, f)
+    }
+  }
+
+  /// @internal
+  iterBack(contentEnd: number, from: number, to: number,
+           f: (node: Node, pos: number, parent: Plot | null, index: number) => boolean | void) {
+    for (let pos = contentEnd, i = this.content.length - 1; i >= 0; i--) {
+      if (pos <= from) break
+      let node = this.content[i], end = pos
+      pos -= node.length
+      if (pos < to && f(node, pos, this, i) !== false && node.isPlot) node.iterBack(end - 1, from, to, f)
     }
   }
 
@@ -736,6 +757,9 @@ export namespace Plot {
     /// plots with block content unless explicitly {@link
     /// Plot.Spec.orientation set}.
     readonly orientation: "row" | "column"
+    /// True if this is an inline plot with {@link
+    /// Plot.Spec.cursorInsideBounds `cursorInsideBounds`} set.
+    readonly cursorInsideBounds: boolean
 
     /// The spec used to define this plot type.
     readonly spec: Plot.Spec<any>
@@ -754,6 +778,7 @@ export namespace Plot {
       this.neutral = spec.neutral ?? !this.defining
       this.preserveWhitespace = spec.preserveWhitespace ?? !!this.hasRole(Node.Role.Code)
       this.orientation = flags & NodeFlag.InlineContent ? "row" : spec.orientation || "column"
+      this.cursorInsideBounds = !!((flags & NodeFlag.Inline) && spec.cursorInsideBounds)
       this.default = "defaultParam" in spec ? Plot.Tag.new(this, spec.defaultParam!, none) :
         (flags & NodeFlag.NullParam) ? Plot.Tag.new(this, null as any, none) : null
       if (!this.shape.atom && this.isInline && !this.inlineContent)

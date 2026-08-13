@@ -1273,6 +1273,10 @@ function splatContext(top: Token[], cx: BuildContext) {
   for (let ch of cx.children) top.push(ch)
 }
 
+function isFitBarrier(plot: Plot.Type) {
+  return plot.isolating || plot.cursorInsideBounds
+}
+
 function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context: readonly Plot.Tag[]) {
   if (!slice.length) return fitDeletion(doc, from, to)
 
@@ -1307,9 +1311,9 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
              start = from.pos, end = to.pos;
              cxFrom.parent;
              cxFrom = cxFrom.parent, start--, fromDepth--) {
-    if (cxFrom.start != start || cxFrom.node.type.isolating) break
+    if (cxFrom.start != start || isFitBarrier(cxFrom.node.type)) break
     while (toDepth > fromDepth) {
-      if (cxTo.node.type.isolating) break scan
+      if (isFitBarrier(cxTo.node.type)) break scan
       cxTo = cxTo.parent!
       toDepth--
       end++
@@ -1338,16 +1342,20 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
   // If the replacement range is an empty range at the start or end of
   // a plot, see if moving it out of the plot improves the fit.
   if (from.pos == to.pos && !from.inText) {
-    let cx: Pos.Plot = from.parent, before = from.pos, after = from.pos
-    for (; cx.parent && !cx.node.type.isolating && (before == cx.start || after == cx.end); cx = cx.parent, before--, after++) {
+    let cx: Pos.Plot = from.parent
+    for (let before = from.index ? -1 : from.pos, after = from.pos == from.parent.end ? from.pos : -1; before > -1 || after > -1;) {
       for (let i = -1; i < context.length; i++) {
         let type = i >= 0 ? context[i].type : firstType
         if (!type) continue
-        if (doc.schema.canContain(cx.parent.node.type, type)) {
-          let pos = before == cx.start ? cx.before : cx.after
+        if (doc.schema.canContain(cx.node.type, type)) {
+          let pos = before > -1 ? before : after
           return {from: pos, to: pos, slice: i >= 0 ? closeSlice(doc.schema, slice, context, i + 1, true) : slice}
         }
       }
+      if (isFitBarrier(cx.node.type) || !cx.parent) break
+      before = before == cx.start ? before - 1 : -1
+      after = after == cx.end ? after + 1 : -1
+      cx = cx.parent
     }
   }
 
@@ -1369,7 +1377,7 @@ function fitDeletion(doc: Plot.Doc, from: Pos, to: Pos) {
   for (let cx = from.parent, cxTo = to.parent, depth = from.depth, start = from.pos, end = to.pos;
        cx.parent; start--, cx = cx.parent, depth--) {
     // If there is content before from, or this is an isolating node, stop
-    if (cx.start != start || cx.node.type.isolating) break
+    if (cx.start != start || isFitBarrier(cx.node.type)) break
     while (toDepth > depth) { cxTo = cxTo.parent!; toDepth--; end++ }
     let toAtEnd = toDepth == depth && cxTo.end == end // Check for content before to
     // If this is a deletion starting at the start of a node and

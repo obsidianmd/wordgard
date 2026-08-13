@@ -128,6 +128,12 @@ export abstract class GardSelection {
     return GardSelection.Text.createInner(pos, pos, side, goalColumn)
   }
 
+  /// Find a normal cursor near the given position.
+  static near(cx: GardSelection.Context, pos: number, side: -1 | 1 = 1, goalColumn?: number) {
+    let norm = findNormalAt(cx, pos, side)
+    return GardSelection.cursor(norm.pos, norm.side, goalColumn)
+  }
+
   /// Create a text selection.
   static range(anchor: number, head?: number, headSide?: -1 | 1, goalColumn?: number) {
     return GardSelection.Text.createInner(anchor, head ?? anchor, headSide, goalColumn)
@@ -153,13 +159,7 @@ export abstract class GardSelection {
   ///   explicitly defined as a {@link Plot.Spec.cursorBarrier
   ///   cursor barrier}.
   nextNormalCursor(cx: GardSelection.Context, forward = true): GardSelection.Text | null {
-    let found = scanNormalFrom(cx, this.head, this.headSide, forward, true)
-    return found && GardSelection.cursor(found.pos, found.side)
-  }
-
-  /// Get a normal cursor at the start or end of this selection.
-  normalCursorAtBound(cx: GardSelection.Context, forward = true): GardSelection.Text | null {
-    let found = scanNormalFrom(cx, forward ? this.to : this.from, forward ? -1 : 1, forward, false)
+    let found = scanNormalFrom(cx, this.head, this.headSide, forward)
     return found && GardSelection.cursor(found.pos, found.side)
   }
 
@@ -167,14 +167,6 @@ export abstract class GardSelection {
   skipWord(cx: GardSelection.Context, forward = true): GardSelection.Text | null {
     let found = skipWord(cx, this.head, this.headSide, forward)
     return found && GardSelection.cursor(found.pos, found.side)
-  }
-
-  /// Find a normal selection near the given position.
-  static near(cx: GardSelection.Context, pos: number, bias: -1 | 1 = 1): GardSelection.Text {
-    let norm = scanNormalFrom(cx, pos, bias, bias > 0, false) ??
-      scanNormalFrom(cx, pos, -bias as -1 | 1, bias < 0, false) ??
-      {pos: pos, side: -1}
-    return GardSelection.cursor(norm.pos, norm.side)
   }
 
   /// Find a normal selection at the start of the document or the
@@ -189,7 +181,7 @@ export abstract class GardSelection {
     let found = block
       ? TextblockMap.get(cx, block.start, block.node).visualSide(false)
       : cx.doc.inlineContent ? TextblockMap.get(cx, 0, cx.doc).visualSide(false)
-      : scanNormalFrom(cx, cx.doc.length, -1, false, false) ?? {pos: cx.doc.length, side: -1}
+      : findNormalAt(cx, cx.doc.length, -1)
     return GardSelection.cursor(found.pos, found.side)
   }
 
@@ -436,7 +428,7 @@ export function cursorAtStart(cx: GardSelection.Context, block?: Pos.Plot) {
   let found = block
     ? TextblockMap.get(cx, block.start, block.node).visualSide(true)
     : cx.doc.inlineContent ? TextblockMap.get(cx, 0, cx.doc).visualSide(true)
-    : scanNormalFrom(cx, 0, 1, true, false) ?? {pos: 0, side: 1}
+    : findNormalAt(cx, 0, 1)
   return GardSelection.cursor(found.pos, found.side)
 }
 
@@ -444,20 +436,20 @@ function isBarrier(cx: GardSelection.Context, node: wgNode) {
   if (node.isLeaf) return node.type.isBlock
   let override = node.type.spec.cursorBarrier
   if (override != null) return override
-  return node.type.isolating || node.type.preserveWhitespace || node.type.isBlock && cx.config.isAtom(node.type)
+  return node.type.isBlock && (node.type.isolating || node.type.preserveWhitespace || cx.config.isAtom(node.type))
 }
 
 // Find the next 'normal' cursor position from the given position. Any
 // inline position not inside a surrogate pair, unicode cluster, or
-// atomic node counts as a normal position. Positions between a block
+// atomic node counts as a normal position, except when it is at the
+// side of a non-cursor-inside inline plot. Positions between a block
 // node that counts as a barrier and another such block node, or the
 // end/start of the document, also count as normal positions.
 function scanNormalFrom(
-  cx: GardSelection.Context, from: number, side: -1 | 1, forward: boolean, mustMove: boolean
+  cx: GardSelection.Context, from: number, side: -1 | 1, forward: boolean
 ): {pos: number, side: -1 | 1} | null {
   let pos = cx.doc.resolve(from), pastBarrier = false
   if (pos.parent.node.inlineContent) {
-    if (!mustMove) return {pos: pos.pos, side}
     let block = pos.textblockParent!
     let map = TextblockMap.get(cx, block.start, block.node)
     let next = cx.config.visualCursorMotion ? map.moveVisually(pos.pos, side, forward) : map.moveLogically(pos.pos, forward)
@@ -490,7 +482,7 @@ function scanNormalFrom(
     }
     if (index == (forward ? node.content.length : 0)) {
       let barrier = !next || isBarrier(cx, node)
-      if ((bottom != from || !mustMove) && pastBarrier && barrier) return {pos: bottom, side: forward ? -1 : 1}
+      if ((bottom != from) && pastBarrier && barrier) return {pos: bottom, side: forward ? -1 : 1}
       if (!next) return null
       index = parent.index + (forward ? 1 : 0)
       parent = next
@@ -500,7 +492,7 @@ function scanNormalFrom(
     } else {
       let nextNode = node.content[index - (forward ? 0 : 1)]
       let barrier = isBarrier(cx, nextNode)
-      if (pastBarrier && (bottom != from || !mustMove) && barrier) return {pos: bottom, side: forward ? -1 : 1}
+      if (pastBarrier && (bottom != from) && barrier) return {pos: bottom, side: forward ? -1 : 1}
       if (nextNode.isLeaf || cx.config.isAtom(nextNode.type)) {
         index += step
         p += nextNode.length * step
@@ -515,12 +507,54 @@ function scanNormalFrom(
   }
 }
 
+function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {pos: number, side: -1 | 1} {
+  let res = cx.doc.resolve(pos), lowest = pos
+  if (res.inText) {
+    let text = res.parent.node.content[res.index].tag.param as string
+    let off = bias > 0 ? findClusterBreak(text, res.inText - 1) : findClusterBreak(text, res.inText + 1, false)
+    pos += off - res.inText
+    if (off > 0 && off < text.length)
+      return {pos, side: bias}
+    res = Pos.create(res.parent, pos, res.index + (off ? 1 : 0), 0)
+  }
+  // Scan first in direction bias, then the other one, looking for a
+  // valid inline position, and tracking the lowest block pos between
+  // the nearest barriers as fallback.
+  for (let pass = 0; pass < 2; pass++) {
+    let dir = !pass ? bias : -bias, {parent, index} = res, curPos = pos
+    for (;;) {
+      if (parent.node.inlineContent &&
+          (parent.node.type.isBlock || curPos > parent.start && curPos < parent.end || parent.node.type.cursorInsideBounds))
+        return {pos: curPos, side: bias}
+      if (index == (dir > 0 ? parent.node.content.length : 0)) {
+        if ((parent.node.type.isInline ? parent.node.type.cursorInsideBounds : isBarrier(cx, parent.node)) ||
+            !parent.parent)
+          break
+        lowest = curPos = curPos + dir
+        index = parent.index + (dir > 0 ? 1 : 0)
+        parent = parent.parent
+      } else {
+        let next = parent.node.content[index + (dir > 0 ? 0 : -1)]
+        if (next.isLeaf || isBarrier(cx, next)) break
+        if (!parent.node.inlineContent && next.inlineContent && cx.config.visualCursorMotion) {
+          let startPos = curPos - (dir > 0 ? 0 : next.length) + 1
+          return TextblockMap.get(cx, startPos, next).visualSide(dir > 0)
+        }
+        parent = Pos.Plot.create(parent, next, curPos, index)
+        index = dir > 0 ? 0 : next.content.length
+        curPos += dir
+      }
+    }
+  }
+  return {pos: lowest, side: bias}
+}
+
 function skipWord(cx: GardSelection.Context, start: number, side: -1 | 1, forward: boolean) {
   let last: {pos: number, side: -1 | 1} | null = null
   for (let pos = start, visually = cx.config.visualCursorMotion;;) {
     let block = cx.doc.resolve(pos).textblockParent
     if (!block) {
-      let next = scanNormalFrom(cx, pos, side, forward, true)
+      let next = scanNormalFrom(cx, pos, side, forward)
       if (!next) return last
       ;({pos, side} = next)
     } else {

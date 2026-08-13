@@ -144,7 +144,7 @@ export class Elt<T = string> {
   toHTML(this: Elt<string>) { return toHTML(this) }
 
   /// Convert an element (with only string content) to a DOM tree.
-  toDOM(this: Elt<string>, doc?: Document) { return toDOM(this, doc) }
+  toDOM(this: Elt<string>, doc?: Document) { return toDOM(this, doc) as Element }
 
   /// @internal
   static empty: readonly any[] = []

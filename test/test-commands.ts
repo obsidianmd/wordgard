@@ -429,6 +429,10 @@ describe("deleteBackward", () => {
     test(doc(hr, 0), deleteBackward)
   })
 
+  it("can delete an empty inline plot", () => {
+    test(doc(p(sp(), 0, "x")), deleteBackward, doc(p(0, "x")))
+  })
+
   let delWord = (state: GardState) => deleteBackward(state, true)
 
   it("can delete a word", () => {
@@ -487,6 +491,10 @@ describe("deleteForward", () => {
 
   it("will not clear the document", () => {
     test(doc(0, hr), deleteForward)
+  })
+
+  it("can delete an empty inline plot", () => {
+    test(doc(p(0, sp())), deleteForward, doc(p(0)))
   })
 
   let delWord = (state: GardState) => deleteForward(state, true)

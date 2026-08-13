@@ -1,20 +1,24 @@
 import {textRange, singleRect} from "./dom"
-import {ltrAt, WidgetTile, TextTile} from "./tile"
+import {ltrAt, WidgetTile, TextTile, Tile} from "./tile"
 import {Wordgard} from "./editor"
+
+export class Coords {
+  constructor(readonly ref: Tile, readonly rect: DOMRect) {}
+}
 
 // Given a position in the document model, get a bounding box of the
 // character at that position, relative to the window.
-export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): DOMRect {
+export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
   let {offset, tile, pos: tilePos} = wg.docTile.resolve(pos, assoc)
 
   if (tile instanceof TextTile) {
     let node = tile.dom, len = node.nodeValue!.length
-    if (!len) return singleRect(textRange(node as Text, 0, 0), 1)
+    if (!len) return new Coords(tile, singleRect(textRange(node as Text, 0, 0), 1))
     let from = offset, to = offset, side: -1 | 1 = assoc < 0 && from || from == len ? 1 : -1
     if (side < 0) to++
     else from--
-    return flattenV(singleRect(textRange(node as Text, from, to), side, true),
-                    (side < 0) == ltrAt(wg.state, pos, assoc))
+    return new Coords(tile, flattenV(singleRect(textRange(node as Text, from, to), side, true),
+                                     (side < 0) == ltrAt(wg.state, pos, assoc)))
   }
 
   let tagTile = tile
@@ -27,9 +31,9 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): DOMRect {
     if (tile.widget.type.inFlow) {
       let rect = singleRect(tile.dom, after ? 1 : -1)
       if (rect.width || rect.height)
-        return horizontal ? flattenH(rect, !after) : flattenV(rect, ltrAt(wg.state, pos, 1) == !after)
+        return new Coords(tile, horizontal ? flattenH(rect, !after) : flattenV(rect, ltrAt(wg.state, pos, 1) == !after))
     }
-    if (!tile.parent) return new DOMRect
+    if (!tile.parent) return new Coords(tile, new DOMRect)
     offset = tile.parent.children.indexOf(tile) + (after ? 1 : 0)
     tile = tile.parent
     assoc = after ? 1 : -1
@@ -43,7 +47,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): DOMRect {
         if (before instanceof WidgetTile && !before.widget.type.inFlow) continue
         let rect = singleRect(before.dom, 1)
         if (rect.width || rect.height)
-          return horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1))
+          return new Coords(before, horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1)))
       }
     } else { // Scan forward
       for (let i = offset; i < tile.children.length; i++) {
@@ -51,13 +55,13 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): DOMRect {
         if (after instanceof WidgetTile && !after.widget.type.inFlow) continue
         let rect = singleRect(after.dom, -1)
         if (rect.width || rect.height)
-          return horizontal ? flattenH(rect, true) : flattenV(rect, ltrAt(wg.state, pos, 1))
+          return new Coords(after, horizontal ? flattenH(rect, true) : flattenV(rect, ltrAt(wg.state, pos, 1)))
       }
     }
   }
   // All else failed, just try to get a rectangle for the target node
   let rect = singleRect(tile.dom, -assoc as -1 | 1)
-  return horizontal ? flattenH(rect, assoc < 0) : flattenV(rect, assoc < 0) 
+  return new Coords(tile, horizontal ? flattenH(rect, assoc < 0) : flattenV(rect, assoc < 0))
 }
 
 function flattenV(rect: DOMRect, left: boolean) {

@@ -102,15 +102,15 @@ export function deleteSelection(state: GardState): Transaction.Spec | false {
   })
 }
 
-/// If the cursor is inside an empty textblock, return a transaction
-/// that deletes the entire block. `dir` determines which way the
-/// cursor moves after the deletion.
-export function deleteEmptyTextblock(state: GardState, dir: -1 | 1 = -1): Transaction.Spec | false {
+/// If the cursor is inside an empty plot, return a transaction that
+/// deletes the entire plot. `dir` determines which way the cursor
+/// moves after the deletion.
+export function deleteEmptyPlot(state: GardState, dir: -1 | 1 = -1): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
-  let block = state.sel.head.textblockParent
-  if (!block || block.start < block.end || block.before == 0 && block.after == state.doc.length) return false
+  let plot = state.sel.head.parent
+  if (!plot.parent || plot.start < plot.end) return false
   return {
-    changes: {from: block.before, to: block.after, fit: true},
+    changes: {from: plot.before, to: plot.after, fit: true},
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.head), dir),
     scrollIntoView: true,
     userEvent: dir < 0 ? "delete.backward" : "delete.forward"
@@ -236,10 +236,8 @@ export function deleteBackward(state: GardState, word = false): Transaction.Spec
   let next = sel.head.inText ? sel.head.nodeBefore! : scan.node.content[--index]
   for (;;) {
     if (next.isPlot && next.type.isolating) return false
-    if (next.isLeaf || state.isAtom(next.type)) break
-    let last = next.content.length - 1
-    if (last < 0) return false
-    next = next.content[last]
+    if (next.isLeaf || state.isAtom(next.type) || !next.content.length) break
+    next = next.content[next.content.length - 1]
     pos--
   }
   if (next.is(Leaf.Text)) {
@@ -271,9 +269,10 @@ export function deleteBackward(state: GardState, word = false): Transaction.Spec
       userEvent: "delete.backward"
     }
   }
+  // Delete the next node, plus, if it's a block, all parents that contain only it.
   let from = pos - next.length, to = pos
   let parent: Pos.Plot | null = state.doc.resolve(pos).parent
-  while (parent && parent.node.type.isBlock && parent.node.content.length == 1) {
+  if (next.type.isBlock) while (parent && parent.node.type.isBlock && parent.node.content.length == 1) {
     if (!parent.parent) return false
     parent = parent.parent
     from--; to++
@@ -301,8 +300,7 @@ export function deleteForward(state: GardState, word = false): Transaction.Spec 
   let next = sel.head.inText ? sel.head.nodeAfter! : scan.node.content[index]
   for (;;) {
     if (next.isPlot && next.type.isolating) return false
-    if (next.isLeaf || state.isAtom(next.type)) break
-    if (!next.content.length) return false
+    if (next.isLeaf || state.isAtom(next.type) || !next.content.length) break
     next = next.content[0]
     pos++
   }
@@ -335,9 +333,10 @@ export function deleteForward(state: GardState, word = false): Transaction.Spec 
       userEvent: "delete.forward"
     }
   }
+  // Delete the node ahead, plus all parents that it completely fills
   let from = pos, to = pos + next.length
   let parent: Pos.Plot | null = state.doc.resolve(pos).parent
-  while (parent && parent.node.type.isBlock && parent.node.content.length == 1) {
+  if (next.type.isBlock) while (parent && parent.node.type.isBlock && parent.node.content.length == 1) {
     if (!parent.parent) return false
     parent = parent.parent
     from--; to++
