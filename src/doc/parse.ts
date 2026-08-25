@@ -284,7 +284,7 @@ class ParseContext {
     } else if (!match || match.rule.ignore === "skip") {
       let sync, top = this.top
       if (blockTags.has(name)) {
-        if (top.children.length && top.children[0].type.isInline && top.parent) this.close()
+        if (top.children.length && top.children[0].isInline && top.parent) this.close()
         sync = true
       }
       let innerMarks = match && match.rule.ignore ? marks : this.parseAttributes(elt, marks)

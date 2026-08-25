@@ -5,6 +5,7 @@ import {Widget, DecoElt, Decoration, DecoIterator, findChangedRanges, WrapperSou
         renderWrapper, renderMarkWrapper, DecoSet, getDecoSet} from "./decoration"
 import {eqArray} from "./util"
 import {textRange, singleRect, DOMNode, rmDOM} from "./dom"
+import {separateChange, Changes, isEmpty} from "./changes"
 import {type CompositionInfo} from "./input"
 import {type Wordgard} from "./editor"
 
@@ -115,6 +116,12 @@ export abstract class Tile {
     return last < 0 ? null : this.children[last]
   }
 
+  get nodeParent(): Tile {
+    let tile: Tile = this
+    while (!tile.node) tile = tile.parent!
+    return tile
+  }
+
   ignoreEvent(event: Event) { return false }
 
   get ignoreMutations() { return false }
@@ -197,7 +204,7 @@ export class CompositeTile extends Tile {
     if (node && node.isPlot) {
       orientation = node.type.orientation == "row" ? Orientation.Row : Orientation.Col
       if (node.isTextblock) textblock = TextblockMap.get(state, start, node)
-      else if (node.type.isBlock) textblock = null
+      else if (node.isBlock) textblock = null
     } else if (node && node.isText) {
       orientation = Orientation.Row
     }
@@ -227,6 +234,10 @@ export class CompositeTile extends Tile {
     if (!result) return null
     let {closest, rect} = result
     let pos = this.posBeforeChild(closest, start)
+    if (closest.node && closest.node.isPlot && closest.node.isInline) {
+      if (x > rect.right) return CoordPos.create(pos + closest.length, -1)
+      if (x < rect.left) return CoordPos.create(pos, 1)
+    }
     return closest.posAtCoordsInner(pos + closest.boundary, state,
                                     x, Math.max(rect!.top, Math.min(rect!.bottom, y)),
                                     textblock, Orientation.Row)
@@ -316,35 +327,35 @@ export class DocTile extends CompositeTile {
 
   get node() { return this.state.doc }
 
-  update(state: GardState, changes: ChangeSet.Sections, wg: Wordgard, composition?: CompositionInfo | null) {
+  update(state: GardState, changes: Changes, wg: Wordgard, composition?: CompositionInfo | null) {
     let decoSet = getDecoSet(state)
     let changed = findChangedRanges(this.state, this.decoSet, state, decoSet, changes)
     return this.updateRanges(state, decoSet, changed, wg, composition)
   }
 
-  updateRanges(state: GardState, decoSet: DecoSet, sections: ChangeSet.Sections, wg: Wordgard,
+  updateRanges(state: GardState, decoSet: DecoSet, changes: Changes, wg: Wordgard,
                composition?: CompositionInfo | null) {
     let wrapper = composition?.wrapCursor || null
-    if ((!sections.length || sections.length == 2 && sections[1] == -1) && eqArray(wrapper, this.cursorWrapper))
+    if (isEmpty(changes) && eqArray(wrapper, this.cursorWrapper))
       return this
-    LOG_update && console.log(`updateRanges(${state.doc},`, sections, ",", composition, ")")
+    LOG_update && console.log(`updateRanges(${state.doc},`, changes, ",", composition, ")")
     if (composition) {
-      let separated = separateComposition(sections, composition)
+      let separated = separateChange(changes, composition.fromB, composition.toB)
       LOG_update && !separated && console.log("separateComposition failed")
       if (!separated) composition = null
-      else sections = separated
+      else changes = separated
     }
     let builder = new ContentUpdate(state, this, wg, new DecoIterator(state, decoSet), wrapper)
-    for (let i = 0, posB = 0, startCovered = false; i < sections.length;) {
-      let len = sections[i++], ins = sections[i++]
+    for (let i = 0, posB = 0, startCovered = false; i < changes.length;) {
+      let len = changes[i++], ins = changes[i++]
       LOG_update && console.log("section", len, ins, "new=" + builder.new, "old=" + builder.old.tile, "@", builder.old.index)
       if (composition && posB == composition.fromB && ins >= 0) {
         LOG_update && console.log("(composition)")
         if (!startCovered) builder.update(0, false)
         builder.composition(composition!, len)
-        if (ins && (startCovered = i == sections.length || sections[i + 1] == -1)) builder.update(0, false)
+        if (ins && (startCovered = i == changes.length || changes[i + 1] == -1)) builder.update(0, false)
       } else if (ins == -1) {
-        builder.keep(len, !startCovered, i == sections.length)
+        builder.keep(len, !startCovered, i == changes.length)
         startCovered = false
       } else if (ins == -2) {
         builder.update(len, !startCovered)
@@ -409,7 +420,8 @@ export class DocTile extends CompositeTile {
           if (off == pos) i = j
           else if (pos == end) i = j + 1
         }
-        if (ch.isPlotContent && !ch.boundary ? pos >= off && pos <= end : pos > off && pos < end) {
+        if (!ch.isPoint &&
+            ((ch.isPlotContent || ch.isNodeInner) && !ch.boundary ? pos >= off && pos <= end : pos > off && pos < end)) {
           if (ch instanceof TextTile) return new TilePos(ch, pos - off, pos)
           else if (ch.isAtom) { i = j; break search }
           scan = ch
@@ -421,7 +433,6 @@ export class DocTile extends CompositeTile {
       }
       break
     }
-
 
     // Then make sure we're on the right side of nearby point and
     // node-inner structure
@@ -504,6 +515,7 @@ export class DocTile extends CompositeTile {
     let elt = this.nearest(dom)
     if (!elt)
       return this.dom.compareDocumentPosition(dom) & 4 /* following */ ? this.length : 0
+
     if (elt.isText) return elt.posAtStart + Math.min(offset, elt.length)
     if (elt.isAtom) return elt.posAtStart + (bias > 0 ? elt.length : 0)
 
@@ -514,8 +526,13 @@ export class DocTile extends CompositeTile {
       while (dom.parentNode != elt.dom) dom = dom.parentNode!
       domBefore = dom.previousSibling
     }
+    // Move positions at the very start or end of inline plots out of them
+    if (elt.node && elt.node.isInline && elt.node.isPlot && (!domBefore || !domBefore.nextSibling))
+      return domBefore ? elt.posAfter : elt.posBefore
+
     while (domBefore && !((eltBefore = domBefore.wgTile) && eltBefore.parent == elt))
       domBefore = domBefore.previousSibling
+
     return domBefore ? elt.posBeforeChild(eltBefore!) + eltBefore!.length : elt.posAtStart
   }
 
@@ -713,7 +730,7 @@ class TilePointer {
           if (side < 0 && !dist) break
         }
         if (!dist && next.isNodeInner && !nodeBoundary) break
-        if (next.length <= dist) {
+        if (next.length < dist || next.length == dist && (next.isPoint || next.boundary)) {
           if (walker) walker.skip(next, 0, next.length)
           dist -= next.length
           index++
@@ -927,7 +944,7 @@ class ContentUpdate {
       for (let mark of composition.wrapCursor!) if (mark.type.element) {
         this.openWrapper(renderMarkWrapper(mark), mark.spanning, false)
       }
-      this.new.addChild(new WidgetTile(imgHack, null, TileFlag.Point | TileFlag.PointBefore, imgHack.render(this.wg)))
+      this.new.addChild(new WidgetTile(Widget.img, null, TileFlag.Point | TileFlag.PointBefore, Widget.img.render(this.wg)))
       return
     }
     let found: EltTile[] = []
@@ -1106,14 +1123,7 @@ class ContentUpdate {
     if (!tile.isPlotContent) return
     while (tile.isNodeInner) tile = tile.parent!
     let node = tile.node
-    if (!node || !node.isPlot || !(node.isTextblock || node.type.isInline)) return
-
-    // Empty inline plots get an image node
-    if (node.type.isInline) {
-      if (!this.new.children.length)
-        this.new.addChild(new WidgetTile(imgHack, null, TileFlag.Point | TileFlag.PointAfter, imgHack.render(this.wg)))
-      return
-    }
+    if (!node || !node.isPlot || !(node.isTextblock || node.isInline)) return
 
     // Textblocks get a trailing <br> if necessary
     let hasHack = -1, needsHack = true
@@ -1121,7 +1131,7 @@ class ContentUpdate {
       if (i > 0) {
         let next = parent.children[--i]
         if (next.isNodeInner || next instanceof WidgetTile && !next.widget.type.inFlow) {
-        } else if (next instanceof WidgetTile && next.widget == brHack && parent == this.new) {
+        } else if (next instanceof WidgetTile && next.widget == Widget.br && parent == this.new) {
           hasHack = i
         } else if (next.dom.nodeName == "BR" || next instanceof TextTile && /\n$/.test(next.text)) {
           break
@@ -1143,7 +1153,7 @@ class ContentUpdate {
     if (hasHack > -1) {
       if (!needsHack) this.new.children.splice(hasHack, 1)
     } else if (needsHack) {
-      this.new.addChild(new WidgetTile(brHack, null, TileFlag.Point | TileFlag.PointAfter, brHack.render(this.wg)))
+      this.new.addChild(new WidgetTile(Widget.br, null, TileFlag.Point | TileFlag.PointAfter, Widget.br.render(this.wg)))
     }
   }
 
@@ -1263,47 +1273,4 @@ export function updateAttributes(dom: Element, a: Attributes, b: Attributes) {
     if (!match) changed = true
   }
   return changed
-}
-
-const brHack = Widget.create({
-  render() { return document.createElement("br") },
-  editable: true
-})
-
-const imgHack = Widget.create({
-  render() {
-    let img = document.createElement("img")
-    img.className = "wg-buffer"
-    return img
-  },
-  editable: true
-})
-
-// Change the given sections to make sure that the composition gets
-// its replacement section, so that the tile update loop can handle it
-// separately from surrounding changes.
-function separateComposition(sections: ChangeSet.Sections, comp: CompositionInfo) {
-  let result: number[] = [], {fromB, toB} = comp
-  let lenI = 0, dLen = 0
-  for (let posB = 0, done = false, i = 0; i < sections.length;) {
-    let len = sections[i++], ins = sections[i++], endB = posB + (ins < 0 ? len : ins)
-    if (fromB > endB || toB < posB) {
-      result.push(len, ins)
-    } else {
-      if (ins >= 0) {
-        if (posB < fromB || endB > toB) return null
-        dLen = len - ins
-      }
-      if (posB < fromB) result.push(fromB - posB, ins)
-      if (!done) {
-        lenI = result.length
-        result.push(0, comp.text.length)
-        done = true
-      }
-      if (endB > toB) result.push(endB - toB, ins)
-    }
-    posB = endB
-  }
-  result[lenI] = comp.text.length + dLen
-  return result
 }

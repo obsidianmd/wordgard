@@ -45,7 +45,7 @@ const BlockFragment = Plot.define("Fragment", {
 
 function fragment(children: ContentSpec[], mark: Mark) {
   let chs = collectChildren(children, mark)
-  return (chs.length && chs[0].type.isBlock ? BlockFragment : InlineFragment).create(chs)
+  return (chs.length && chs[0].isBlock ? BlockFragment : InlineFragment).create(chs)
 }
   
 const tagMap = new WeakMap<readonly Node[], {[label: number]: number}>()

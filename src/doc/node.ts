@@ -127,6 +127,10 @@ export namespace Node {
     isText: boolean
     /// True when this is a {@link Plot}.
     isPlot: boolean
+    /// True when this node is a block node.
+    isBlock: boolean
+    /// Indicate whether this is an inline node.
+    isInline: boolean
     /// Convert this node to its JSON-serializeable representation.
     toJSON(): Node.JSON
   }
@@ -361,6 +365,8 @@ export class Leaf<Param = unknown> extends BaseTag<Param> implements Node.Shared
 
   get isLeaf(): true { return true }
   get isPlot(): false { return false }
+  get isInline() { return this.type.isInline }
+  get isBlock() { return this.type.isBlock }
 
   get length(): number { return this.is(Leaf.Text) ? this.param.length : 1 }
 
@@ -533,6 +539,8 @@ export class Plot implements Node.Shared {
   get isTextblock() { return this.type.isTextblock }
   get isLeaf(): false { return false }
   get isPlot(): true { return true }
+  get isInline() { return this.type.isInline }
+  get isBlock() { return this.type.isBlock }
   /// True if this is a document node.
   get isDoc() { return this.type.isDoc }
 
@@ -757,9 +765,6 @@ export namespace Plot {
     /// plots with block content unless explicitly {@link
     /// Plot.Spec.orientation set}.
     readonly orientation: "row" | "column"
-    /// True if this is an inline plot with {@link
-    /// Plot.Spec.cursorInsideBounds `cursorInsideBounds`} set.
-    readonly cursorInsideBounds: boolean
 
     /// The spec used to define this plot type.
     readonly spec: Plot.Spec<any>
@@ -778,7 +783,6 @@ export namespace Plot {
       this.neutral = spec.neutral ?? !this.defining
       this.preserveWhitespace = spec.preserveWhitespace ?? !!this.hasRole(Node.Role.Code)
       this.orientation = flags & NodeFlag.InlineContent ? "row" : spec.orientation || "column"
-      this.cursorInsideBounds = !!((flags & NodeFlag.Inline) && spec.cursorInsideBounds)
       this.default = "defaultParam" in spec ? Plot.Tag.new(this, spec.defaultParam!, none) :
         (flags & NodeFlag.NullParam) ? Plot.Tag.new(this, null as any, none) : null
       if (!this.shape.atom && this.isInline && !this.inlineContent)
@@ -881,11 +885,6 @@ export namespace Plot {
     /// block to the default type of textblock at that position. Setting
     /// this to true on a textblock type will prevent that behavior.
     preserveOnSplitAtEnd?: boolean
-    /// For inline nodes with inline content, this determines whether
-    /// there are normalized cursor positions directly inside the node.
-    /// The default is to only have cursor positions right outside the
-    /// node.
-    cursorInsideBounds?: boolean
   }
 
   let validate = true
@@ -996,7 +995,7 @@ function sliceContent(out: Token[], content: readonly Node[], from: number, to: 
 }
 
 function joinText(nodes: readonly Node[]) {
-  if (!nodes.length || nodes[0].type.isBlock) return nodes
+  if (!nodes.length || nodes[0].isBlock) return nodes
   let joined: Node[] | undefined
   for (let i = 0, last: Leaf<string> | null = null; i < nodes.length; i++) {
     let node = nodes[i]

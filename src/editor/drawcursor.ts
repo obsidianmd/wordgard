@@ -104,6 +104,11 @@ function alignOffset(align: string, height: number) {
   return 0
 }
 
+function vertOverlap(a: DOMRect, b: DOMRect) {
+  let margin = a.height / 3
+  return a.top < b.bottom + margin && a.bottom > b.top + margin
+}
+
 const VertWidth = 30, VertGap = 5
 
 function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInfo) => void) {
@@ -115,7 +120,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
 
   // Block context, horizontal cursor
   if (!sel.head.parent.node.inlineContent) {
-    let width = Math.max(VertWidth, rect.width), top = rect.top
+    let width = Math.min(VertWidth, rect.width), top = rect.top
     let other = wg.coordsAtPos(head, headSide > 0 ? -1 : 1)
     if (other.top == other.bottom && other.top != top) {
       let move = Math.min(VertGap, Math.abs(other.top - top) / 2)
@@ -134,7 +139,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
       plugin.cached = {style, marks, parent: sel.head.parent.node.tag}
     let height = style ? style.height : rect.height
     let bot = rect.bottom
-    if (vertRect && (vertRect.top < rect.bottom && vertRect.bottom > rect.top)) {
+    if (vertRect && vertOverlap(vertRect, rect)) {
       bot = vertRect.bottom
     } else {
       let win = ref.dom.ownerDocument.defaultView || window
@@ -161,7 +166,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
 
   // See if a sibling node has the same set of marks, read style from that
   let pos = sel.head.parent.start, foundRect: DOMRect | undefined, foundNode: Text | undefined
-  for (let sibling of sel.head.parent.node.content) {
+  scan: for (let sibling of sel.head.parent.node.content) {
     if (sibling.isText && Mark.sameSet(sibling.marks, marks)) {
       let {tile} = wg.docTile.resolve(pos, 1)
       if (tile instanceof TextTile) {
@@ -169,7 +174,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
         foundNode = tile.dom
         for (let i = 0; i < rects.length; i++) {
           foundRect = rects[i]
-          if (foundRect.top < rect.bottom && foundRect.bottom > rect.top) break
+          if (vertOverlap(foundRect, rect)) break scan
         }
       }
     }

@@ -1,5 +1,5 @@
 import ist from "ist"
-import {Schema, Plot, Leaf, Node} from "wordgard/doc"
+import {Schema, Plot, Node} from "wordgard/doc"
 import {Table, TableRow, Cell, HeaderCell} from "wordgard/types"
 import {GardSelection, GardState} from "wordgard/state"
 import {basicSchema, basicBuilders, builder, maybeTag} from "./schema.ts"
@@ -11,19 +11,13 @@ let Iso = Plot.define("Iso", {
   isolating: true,
   shape: {element: "div"}
 }), iso = builder(Iso)
-let InlineA = Plot.define("InlineA", {
+let Inline = Plot.define("Inline", {
   inline: true,
   inlineContent: true,
   shape: {element: "span"}
-}), a = builder(InlineA)
-let InlineB = Plot.define("InlineB", {
-  inline: true,
-  inlineContent: true,
-  cursorInsideBounds: true,
-  shape: {element: "span"}
-}), b = builder(InlineB)
+}), inl = builder(Inline)
 
-const schema = Schema.define([...basicSchema.nodes, ...basicSchema.marks, Iso, InlineA, InlineB,
+const schema = Schema.define([...basicSchema.nodes, ...basicSchema.marks, Iso, Inline,
                               Table, TableRow, Cell, HeaderCell])
 const doc = builder(schema)
 
@@ -101,11 +95,8 @@ describe("GardSelection", () => {
     it("skips whole glyphs", () =>
       testNormal(doc(p(0, "ő", 1, "👨‍🎤", 2, "🇪🇸", 3))))
 
-    it("creates positions outside inline content nodes", () =>
-      testNormal(doc(p(0, "a", 1, a("b", 2, "c"), 3, "d", 4))))
-
-    it("creates positions inside inline content nodes with inside bounds", () =>
-      testNormal(doc(p(0, "a", 1, b(2, "b", 3, "c", 4), 5, "d", 6))))
+    it("creates positions inside inline plots", () =>
+      testNormal(doc(p(0, "a", 1, inl(2, "b", 3, "c", 4), 5, "d", 6))))
 
     it("exits text nodes", () => {
       testNormal(doc(p(0, "a", 1, "b", 2, $img, 3, "c", 4, "d", 5)))
@@ -187,37 +178,9 @@ describe("GardSelection", () => {
       ist(GardSelection.near(s, 8).head, 6)
     })
 
-    let inline = Plot.define("Inline", {
-      inline: true,
-      inlineContent: true,
-      shape: {element: "span"}
-    })
-
-    it("will exit a non-cursor-inside inline plot", () => {
-      Plot.Doc.noValidate(() => {
-        let s = GardState.create({doc: doc(p("a", inline.create([Leaf.text("b")]), "c"))})
-        ist(GardSelection.near(s, 3).head, 2)
-        ist(GardSelection.near(s, 4).head, 5)
-      })
-    })
-
-    it("will exit a non-cursor-inside after exiting a surrogate pair", () => {
-      Plot.Doc.noValidate(() => {
-        let s = GardState.create({doc: doc(p("a", inline.create([Leaf.text("🐜")])))})
-        ist(GardSelection.near(s, 4, -1).head, 2)
-        ist(GardSelection.near(s, 4, 1).head, 6)
-      })
-    })
-
     it("will not exit a cursor-inside inline plot", () => {
-      let inline = Plot.define("Inline", {
-        inline: true,
-        inlineContent: true,
-        cursorInsideBounds: true,
-        shape: {element: "span"}
-      })
       Plot.Doc.noValidate(() => {
-        let s = GardState.create({doc: doc(p("a", inline.create([Leaf.text("b")]), "c"))})
+        let s = GardState.create({doc: doc(p("a", inl("b"), "c"))})
         ist(GardSelection.near(s, 3).head, 3)
         ist(GardSelection.near(s, 4).head, 4)
       })

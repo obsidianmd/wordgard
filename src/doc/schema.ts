@@ -51,7 +51,7 @@ export class Schema {
       if (!node.type.canBeEmpty && node.content.length == 0)
         throw new ValidationError(`Node ${node.name} with block content may not be empty`)
       for (let ch of node.content) {
-        if (!this.canContain(node.type, ch.type) || node.inlineContent != ch.type.isInline)
+        if (!this.canContain(node.type, ch.type) || node.inlineContent != ch.isInline)
           throw new ValidationError(`Node type ${node.name} cannot contain child ${ch.name}`)
         this.validate(ch)
       }

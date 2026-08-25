@@ -1,6 +1,7 @@
 import {GardSelection} from "wordgard/state"
 import {Pos, Leaf} from "wordgard/doc"
 import {Wordgard} from "./editor"
+import {type CoordPos} from "./tile"
 import {isEquivalentPosition, getSelection, SelectionRange} from "./dom"
 
 export function setDOMSelection(wg: Wordgard) {
@@ -32,6 +33,33 @@ export function readDOMSelection(wg: Wordgard, range: SelectionRange) {
   let head = range.anchorNode == range.focusNode && range.anchorOffset == range.focusOffset ? anchor
     : wg.posAtDOM(range.focusNode!, range.focusOffset)
   return GardSelection.range(anchor, head)
+}
+
+export function selectionFromTouch(event: TouchEvent, wg: Wordgard) {
+  let pos = wg.posAtCoords({x: event.touches[0].clientX, y: event.touches[0].clientY})
+  if (pos.target != null) {
+    let target = wg.state.doc.nodeAt(pos.target)
+    if (target && target.type.isSelectable && wg.state.isAtom(target.type))
+      return GardSelection.node(pos.target, target)
+  }
+  return GardSelection.near(wg.state, pos.pos, pos.side)
+}
+
+export function rangeForClick(wg: Wordgard, pos: CoordPos, type: number): GardSelection {
+  if (type < 3 && pos.target != null) {
+    let target = wg.state.doc.nodeAt(pos.target)
+    if (target && target.type.isSelectable && wg.state.isAtom(target.type))
+      return GardSelection.node(pos.target, target)
+  }
+  if (type == 1) { // Single click
+    return GardSelection.near(wg.state, pos.pos, pos.side || -1)
+  } else if (type == 2) { // Double click
+    return wg.state.wordAt(pos.pos, pos.side || 1)
+  } else { // Triple click
+    let cx = wg.state.doc.resolve(pos.pos), block = cx.textblockParent
+    if (block) return GardSelection.range(block.start, block.end)
+    else return GardSelection.near(wg.state, pos.pos, pos.side || -1)
+  }
 }
 
 const Y_STEP = 5

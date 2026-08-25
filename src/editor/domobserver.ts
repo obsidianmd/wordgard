@@ -1,9 +1,10 @@
-import {ChangeSet} from "wordgard/doc"
+import {GardSelection} from "wordgard/state"
 import browser from "./browser"
 import {Wordgard} from "./editor"
 import {DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange, isEquivalentPosition} from "./dom"
 import {Tile, TileFlag, WidgetTile} from "./tile"
-import {readDOMSelection} from "./selection"
+import {readDOMSelection, selectionFromTouch} from "./selection"
+import {addRange} from "./changes"
 
 const observeOptions = {
   childList: true,
@@ -34,7 +35,7 @@ export class DOMObserver {
 
   // Ranges (refering to positions in the flushed document) that need
   // to be re-checked because their DOM changed, if any are known.
-  dirty: ChangeSet.Sections | null = null
+  dirty: number[] | null = null
 
   scrollTargets: HTMLElement[] = []
   resizeScroll: ResizeObserver | null = null
@@ -128,13 +129,21 @@ export class DOMObserver {
   }
 
   pollSelection() {
+    let {wg} = this
     if (this.selectionChanged &&
-        (this.wg.hasFocus || !this.wg.focusable) && hasSelection(this.wg.contentDOM, this.selectionRange)) {
+        (wg.hasFocus || !wg.focusable) && hasSelection(wg.contentDOM, this.selectionRange)) {
       this.selectionChanged = false
-      let sel = readDOMSelection(this.wg, this.selectionRange)
-      if (!sel.eqPos(this.wg.state.selection)) {
-        let userEvent = this.wg.inputState.lastTouchTime > Date.now() - 100 ? "select.pointer" : "select"
-        this.wg.dispatch({selection: sel, userEvent})
+      let fromTouch = wg.inputState.lastTouchTime > Date.now() - 100
+      let sel: GardSelection = readDOMSelection(wg, this.selectionRange)
+      if (!sel.eqPos(wg.state.selection)) {
+        let userEvent = "select"
+        if (fromTouch) {
+          userEvent = "select.pointer"
+          let event = wg.inputState.lastTouchEvent!
+          if (event.touches.length == 1 && sel.isCursor)
+            sel = selectionFromTouch(event, wg)
+        }
+        wg.dispatch({selection: sel, userEvent})
       }
     }
   }
@@ -189,10 +198,7 @@ export class DOMObserver {
   }
 
   addDirtyRange(from: number, to: number) {
-    let sections = from ? [from, -1] : [], len = this.wg.flushedState.doc.length
-    sections.push(to - from, -2)
-    if (to < len) sections.push(len - to, -1)
-    this.dirty = this.dirty ? ChangeSet.composeSections(this.dirty, sections) : sections
+    addRange(this.dirty || (this.dirty = []), from, to)
   }
 
   processRecords(records: readonly MutationRecord[]) {
@@ -235,7 +241,6 @@ function childRange(tile: Tile, record: MutationRecord): [number, number] {
   return [childBefore ? tile.posBeforeChild(childBefore) + childBefore.length : tile.posAtStart,
           childAfter ? tile.posBeforeChild(childAfter) : tile.posAtEnd]
 }
-
 
 function findChild(elt: Tile, dom: Node | null, dir: number): Tile | null {
   while (dom) {
