@@ -776,7 +776,6 @@ export namespace PointSet {
 
 interface SetIterator<T> {
   value: T | null
-  done: boolean
   from: number
   to: number
   next(): void
@@ -785,7 +784,6 @@ interface SetIterator<T> {
 
 class PointIterator<T extends PointSet.Value> implements SetIterator<T> {
   declare value: T | null
-  done = false
   declare from: number
   declare i: number
 
@@ -803,20 +801,18 @@ class PointIterator<T extends PointSet.Value> implements SetIterator<T> {
     } else {
       this.from = 1e8
       this.value = null
-      this.done = true
     }
   }
 
   next() {
-    if (!this.done) this.fill(this.i + 1)
+    if (this.value) this.fill(this.i + 1)
   }
 
   get side() {
-    return this.done ? 1 : this.value!.side
+    return this.value ? this.value!.side : 1
   }
 
   goto(pos: number, inclusive: boolean) {
-    this.done = false
     let i = findAbove(this.set.positions, 0, pos - 1)
     if (!inclusive) {
       while (i < this.set.values.length && this.set.values[i].side < Side.After) i++
@@ -1006,7 +1002,6 @@ class RangeIterator<T extends RangeSet.Value> implements SetIterator<T> {
   declare value: T | null
   declare from: number
   declare to: number
-  done = false
   declare i: number
 
   constructor(readonly set: RangeSet<T>) {
@@ -1022,16 +1017,14 @@ class RangeIterator<T extends RangeSet.Value> implements SetIterator<T> {
     } else {
       this.from = this.to = 1e8
       this.value = null
-      this.done = true
     }
   }
 
   next() {
-    if (!this.done) this.fill(this.i + 1)
+    if (this.value) this.fill(this.i + 1)
   }
 
   goto(pos: number) {
-    this.done = false
     this.fill(findAbove(this.set.to, 0, pos))
   }
 }
@@ -1166,7 +1159,7 @@ class HeapIterator<R extends RangeSet.Value, P extends PointSet.Value> {
     if (this.done) return this
     if (this.point) {
       this.point.next()
-      if (this.point.done) popHeap(this.pointHeap, cmpPoint)
+      if (!this.point.value) popHeap(this.pointHeap, cmpPoint)
       else bubble(this.pointHeap, 0, cmpPoint)
       this.point = null
     }
@@ -1196,7 +1189,7 @@ class HeapIterator<R extends RangeSet.Value, P extends PointSet.Value> {
       } else {
         let first = active[0]
         first.next()
-        if (!first.done)
+        if (first.value)
           sink(rangeHeap, rangeHeap.push(first) - 1, cmpRangeFrom)
         popHeap(active, cmpRangeTo)
       }
@@ -1355,7 +1348,7 @@ export class DecoIterator {
     for (let i of this.rangeIter) i.goto(from)
     for (let i of this.pointIter) i.goto(from, inclusiveStart)
     let iter = new HeapIterator<Decoration.Range, Decoration.Point>(
-      this.rangeIter.filter(i => !i.done), this.pointIter.filter(i => !i.done), from, to)
+      this.rangeIter.filter(i => i.value), this.pointIter.filter(i => i.value), from, to)
     let pos = this.pos.advance(from - this.pos.pos), started = inclusiveStart
     let atomParent: Pos.Plot | undefined
     for (let p: Pos.Plot | null = pos.parent; p; p = p.parent)
