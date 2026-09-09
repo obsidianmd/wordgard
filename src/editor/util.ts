@@ -17,3 +17,16 @@ export function logException(state: GardState, exception: any, context?: string)
   else if (context) console.error(context + ":", exception)
   else console.error(exception)
 }
+
+// Perform a binary search on the given array (starting at start) and
+// return the index of the first element > n (or the length if no such
+// element exists).
+export function findAbove(array: readonly number[], start: number, n: number) {
+  let from = start, to = array.length
+  for (;;) {
+    if (from == to) return from
+    let mid = (from + to) >> 1
+    if (array[mid] > n) to = mid
+    else from = mid + 1
+  }
+}

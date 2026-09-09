@@ -54,7 +54,7 @@ export function rmDOM(dom: ChildNode): ChildNode | null {
 
 export function isBlockElement(node: Node): boolean {
   let tile = node.wgTile
-  if (tile?.node) return tile.node.type.isBlock
+  if (tile?.node) return tile.node.isBlock
   return node.nodeType == 1 && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|DD|DT|H\d|SECTION|PRE)$/.test(node.nodeName)
 }
 

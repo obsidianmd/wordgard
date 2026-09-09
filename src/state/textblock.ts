@@ -77,17 +77,10 @@ export class TextblockMap {
             sections.push((ch.length << Section.Shift) | Section.Atom)
             sectionPos = pos + ch.length
           }
-        } else if (ch.type.cursorInsideBounds) {
+        } else {
           text += " "
           scan(ch, pos + 1)
           text += " "
-        } else {
-          flush(pos)
-          sections.push((1 << Section.Shift) | Section.BoundAfter)
-          scan(ch, sectionPos = pos + 1)
-          flush(pos + ch.length - 1)
-          sections.push((1 << Section.Shift) | Section.BoundBefore)
-          sectionPos = pos + ch.length
         }
         pos += ch.length
       }

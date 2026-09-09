@@ -45,7 +45,7 @@ function toggleLink(wg: Wordgard) {
 function computeLinkTooltip(state: GardState): Tooltip | null {
   if (!state.selection.isCursor) return null
   let {head} = state.sel, before = head.nodeBefore, link = before && Link.isInSet(before.marks)
-  if (!link) return null
+  if (!link || head.matchingParent(plot => state.isAtom(plot.type))) return null
   let start = head.pos - before!.length, end = head.pos, siblings = head.parent.node.content
   for (let index = head.index - 1; index > 0 && link.isInSet(siblings[index - 1].marks);)
     start -= siblings[--index].length

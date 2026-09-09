@@ -57,13 +57,14 @@ const enum F {
 }
 
 class BarButton implements BarElement {
-  dom: HTMLElement
+  dom: HTMLButtonElement
   flags: F = 0 as F
   index = 0
 
   constructor(readonly item: Menu.Button, wg: Wordgard) {
     this.dom = document.createElement("button")
     this.dom.className = "wg-menu-button"
+    this.dom.type = "button"
     this.dom.tabIndex = -1
     labelButton(wg, this.dom, item.label)
     if (item.description) {
@@ -139,7 +140,7 @@ class BarControl implements BarElement {
 
 class BarSubmenu implements BarElement {
   dom: HTMLElement
-  button: HTMLElement
+  button: HTMLButtonElement
   list: HTMLElement
   flags: F = 0 as F
   // Initialized to -3. -2 means the submenu has its own label, > -2
@@ -151,6 +152,7 @@ class BarSubmenu implements BarElement {
   constructor(readonly item: Menu.Submenu, children: readonly (BarElement | BarSpacer)[], wg: Wordgard) {
     this.dom = document.createElement("wg-submenu")
     this.button = this.dom.appendChild(document.createElement("button"))
+    this.button.type = "button"
     this.button.tabIndex = -1
     this.button.className = "wg-menu-button"
     this.button.setAttribute("aria-haspopup", "true")

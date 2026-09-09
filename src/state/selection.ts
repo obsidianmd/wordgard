@@ -147,9 +147,7 @@ export abstract class GardSelection {
   /// Find the next normal cursor position after or before this selection's
   /// head. Normal cursor positions are:
   ///
-  /// - Any inline position, except one directly inside of an inline
-  ///   plot that doesn't have {@link Plot.Spec.cursorInsideBounds
-  ///   `cursorInsideBounds`} set.
+  /// - Any inline position.
   ///
   /// - Positions between two cursor barriers, if not already an
   ///   inline position. Cursor barriers are the sides of the
@@ -433,10 +431,10 @@ export function cursorAtStart(cx: GardSelection.Context, block?: Pos.Plot) {
 }
 
 function isBarrier(cx: GardSelection.Context, node: wgNode) {
-  if (node.isLeaf) return node.type.isBlock
+  if (node.isLeaf) return node.isBlock
   let override = node.type.spec.cursorBarrier
   if (override != null) return override
-  return node.type.isBlock && (node.type.isolating || node.type.preserveWhitespace || cx.config.isAtom(node.type))
+  return node.isBlock && (node.type.isolating || node.type.preserveWhitespace || cx.config.isAtom(node.type))
 }
 
 // Find the next 'normal' cursor position from the given position. Any
@@ -523,13 +521,9 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {po
   for (let pass = 0; pass < 2; pass++) {
     let dir = !pass ? bias : -bias, {parent, index} = res, curPos = pos
     for (;;) {
-      if (parent.node.inlineContent &&
-          (parent.node.type.isBlock || curPos > parent.start && curPos < parent.end || parent.node.type.cursorInsideBounds))
-        return {pos: curPos, side: bias}
+      if (parent.node.inlineContent) return {pos: curPos, side: bias}
       if (index == (dir > 0 ? parent.node.content.length : 0)) {
-        if ((parent.node.type.isInline ? parent.node.type.cursorInsideBounds : isBarrier(cx, parent.node)) ||
-            !parent.parent)
-          break
+        if (isBarrier(cx, parent.node) || !parent.parent) break
         lowest = curPos = curPos + dir
         index = parent.index + (dir > 0 ? 1 : 0)
         parent = parent.parent

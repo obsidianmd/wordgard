@@ -1,6 +1,6 @@
 {
   "name": "wordgard",
-  "version": "0.4.0",
+  "version": "0.5.1",
   "description": "Semantic rich text editor system",
   "type": "module",
   "main": "dist/index.js",

@@ -1,11 +1,12 @@
 import {GardSelection, GardState, Transaction} from "wordgard/state"
-import {Plot, Leaf, ChangeSet, Mark, Slice, ValidationError, Pos} from "wordgard/doc"
+import {Plot, Leaf, ChangeSet, Mark, Slice, Pos, ValidationError} from "wordgard/doc"
 import {Command, undo, redo, insertLineBreak, enter, insertText,
         deleteWord, deleteUnit, deleteToLineEnd, deleteLine,
         toggleEmphasis, toggleStrong, toggleUnderline,
         transposeChars, deleteSelection, setAlignment, setDirection} from "wordgard/command"
 import {findClusterBreak} from "@marijn/find-cluster-break"
 import {Wordgard} from "./editor"
+import {rangeForClick} from "./selection"
 import browser from "./browser"
 import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex} from "./dom"
 import {readClipboard, writeClipboard} from "./clipboard"
@@ -50,6 +51,7 @@ export class InputState {
   lastKeyCode: number = 0
   lastKeyTime: number = 0
   lastTouchTime = 0
+  lastTouchEvent: TouchEvent | null = null
   lastScrollTop = 0
   lastScrollLeft = 0
 
@@ -220,8 +222,8 @@ export class InputState {
     let type = event.inputType, range: {from: number, to: number} | undefined
     let {wg} = this, sel = wg.state.selection
     if (data.domRange) {
-      range = {from: snapToSel(wg.state, this.domMapping.mapPos(data.domRange.from)),
-               to: snapToSel(wg.state, this.domMapping.mapPos(data.domRange.to))}
+      range = {from: this.domMapping.mapPos(data.domRange.from),
+               to: this.domMapping.mapPos(data.domRange.to)}
       if (!this.domMapping.empty && type == "insertText" && !this.composing && range.from == range.to) {
         let fromMax = this.domMapping.mapPos(data.domRange.from, 1)
         if (range.from <= sel.from && fromMax >= sel.to)
@@ -315,6 +317,11 @@ export class InputState {
     }
   }
 
+  recordTouch(e: TouchEvent) {
+    this.lastTouchTime = Date.now()
+    this.lastTouchEvent = e
+  }
+
   connect() {
     this.ensureHandlers(this.wg.state)
   }
@@ -322,34 +329,6 @@ export class InputState {
   disconnect() {
     if (this.mouseSelection) this.mouseSelection.disconnect()
   }
-}
-
-// FIXME this will affect composition
-function snapToSel(state: GardState, pos: number) {
-  let {head, anchor} = state.selection
-  if (pos == head || pos == anchor) return pos
-  if (onlyInlineNodeBoundsBetween(state.doc, head, pos)) return head
-  if (head != anchor && onlyInlineNodeBoundsBetween(state.doc, head, pos)) return anchor
-  return pos
-}
-
-function onlyInlineNodeBoundsBetween(doc: Plot.Doc, a: number, b: number) {
-  if (a > b) [a, b] = [b, a]
-  let {parent, index, inText} = doc.resolve(a)
-  if (inText) return false
-  for (; a < b; a++) {
-    if (index == parent.node.content.length) {
-      if (!parent.node.type.isInline) return false
-      index = parent.index + 1
-      parent = parent.parent!
-    } else {
-      let next = parent.node.content[index]
-      if (!next.isPlot || !next.type.isInline) return false
-      parent = Pos.Plot.create(parent, next, a, index)
-      index = 0
-    }
-  }
-  return true
 }
 
 function isSingleChar(doc: Plot.Doc, from: number, to: number) {
@@ -554,23 +533,6 @@ function queryPos(wg: Wordgard, event: MouseEvent) {
   return wg.posAtCoords({x: event.clientX, y: event.clientY}) as CoordPos
 }
 
-function rangeForClick(wg: Wordgard, pos: CoordPos, type: number): GardSelection {
-  if (type < 3 && pos.target != null) {
-    let target = wg.state.doc.nodeAt(pos.target)
-    if (target && target.type.isSelectable && wg.state.isAtom(target.type))
-      return GardSelection.node(pos.target, target)
-  }
-  if (type == 1) { // Single click
-    return GardSelection.near(wg.state, pos.pos, pos.side || -1)
-  } else if (type == 2) { // Double click
-    return wg.state.wordAt(pos.pos, pos.side || 1)
-  } else { // Triple click
-    let cx = wg.state.doc.resolve(pos.pos), block = cx.textblockParent
-    if (block) return GardSelection.range(block.start, block.end)
-    else return GardSelection.near(wg.state, pos.pos, pos.side || -1)
-  }
-}
-
 function basicMouseSelection(wg: Wordgard, event: MouseEvent) {
   let start = queryPos(wg, event), type = event.detail
   let startSel = wg.state.selection
@@ -697,10 +659,12 @@ function compositionUpdate(wg: Wordgard, event: CompositionEvent) {
     wg.inputState.composing = {changes: 0, target: null}
 
     let wrap: Mark.Set | null = null
-    if (!wg.inputState.composing.changes && !event.data) {
+    if (!event.data) {
       let sel = wg.state.selection, rSel = wg.state.sel
       if (sel.empty && (sel instanceof GardSelection.Text && sel.marks || !rSel.head.inText && rSel.head.index) &&
-        !eqArray(rSel.head.nodeBefore?.tag.marks, rSel.activeMarks))
+          !eqArray(rSel.head.nodeBefore?.tag.marks, rSel.activeMarks))
+        wrap = rSel.activeMarks
+      else if (sel.empty && inlineBoundNear(wg.state.sel.head))
         wrap = rSel.activeMarks
     }
 
@@ -709,6 +673,13 @@ function compositionUpdate(wg: Wordgard, event: CompositionEvent) {
       wg.flush()
     } finally { wg.inputState.wrappingComposition = null }
   }
+}
+
+function inlineBoundNear(pos: Pos) {
+  let {parent, index, inText} = pos
+  if (inText || !parent.node.inlineContent) return false
+  return (index ? parent.node.content[index - 1].isPlot : parent.node.isInline) ||
+    (index < parent.node.content.length ? parent.node.content[index].isPlot : parent.node.isInline)
 }
 
 function isDeletionInputEvent(type: string) { return /^delete(Content|Word)/.test(type) }
@@ -898,13 +869,8 @@ const baseObservers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     wg.inputState.lastScrollLeft = wg.scrollDOM.scrollLeft
   },
 
-  touchstart(wg, e) {
-    wg.inputState.lastTouchTime = Date.now()
-  },
-
-  touchmove(wg) {
-    wg.inputState.lastTouchTime = Date.now()
-  },
+  touchstart(wg, e) { wg.inputState.recordTouch(e) },
+  touchmove(wg, e) { wg.inputState.recordTouch(e) },
 
   focus(wg) {
     // When focusing reset the scroll position, move it back to where it was

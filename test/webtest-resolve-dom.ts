@@ -1,13 +1,14 @@
 import {Wordgard, Widget, Decoration, PointSet} from "wordgard/editor"
 import {GardState} from "wordgard/state"
 import {Plot, Leaf, Elt} from "wordgard/doc"
+import {Paragraph} from "wordgard/types"
 import ist from "ist"
 import {basicBuilders} from "./schema.ts"
 
 const {DocTile} = Wordgard
 const dummyEditor: Wordgard = {connected: false} as any
 
-const {doc, p, $img, hr, capFig, strong, em, code} = basicBuilders
+const {doc, p, blockquote, $img, hr, capFig, strong, em, code} = basicBuilders
 
 function render(doc: Plot.Doc, ...config: GardState.Extension[]) {
   return DocTile.create(GardState.create({doc, config}), document.createElement("div"), dummyEditor)
@@ -90,11 +91,25 @@ describe("DocTile.resolve", () => {
     isIn(node.resolve(4, 1), "d", 0)
   })
 
-  it("does not resolve into inner node structure", () => {
+  it("does not resolve into inner point structure", () => {
     Plot.Doc.noValidate(() => {
       let node = render(doc(p("a"), capFig("test.png", "Caption")))
       isIn(node.resolve(4, -1), "FIGCAPTION", 0)
       isIn(node.resolve(11, 1), "FIGCAPTION", 1)
+    })
+  })
+
+  it("does go into inner content wrappers", () => {
+    let Deep = Plot.define("Deep", {
+      inlineContent: true,
+      shape: {structure: Elt.mk("div", [Elt.mk("section", [Elt.mk("p", [0])])])}
+    })
+    Plot.Doc.noValidate(() => {
+      let node = render(doc(Deep.create([Leaf.text("abc")])))
+      isIn(node.resolve(1, -1), "P", 0)
+      isIn(node.resolve(1, 1), "abc", 0)
+      isIn(node.resolve(4, 1), "P", 1)
+      isIn(node.resolve(4, -1), "abc", 3)
     })
   })
 
@@ -115,6 +130,64 @@ describe("DocTile.resolve", () => {
       isIn(node.resolve(1, 1), "...", 0)
       isIn(node.resolve(4, -1), "...", 3)
       isIn(node.resolve(4, 1), "INNER", 2)
+    })
+  })
+})
+
+describe("DocTile.posFromDOM", () => {
+  it("locates basic positions", () => {
+    let node = render(doc(p("ab", em("cd")), hr, blockquote(p("e"))))
+    let [p1, p2] = node.dom.querySelectorAll("p")
+    ist(node.posFromDOM(node.dom, 0), 0)
+    ist(node.posFromDOM(node.dom, 1), 6)
+    ist(node.posFromDOM(node.dom, 2), 7)
+    ist(node.posFromDOM(node.dom, 3), 12)
+    ist(node.posFromDOM(p1, 0), 1)
+    ist(node.posFromDOM(p1, 1), 3)
+    ist(node.posFromDOM(p1, 2), 5)
+    ist(node.posFromDOM(p1.firstChild!, 0), 1)
+    ist(node.posFromDOM(p1.firstChild!, 1), 2)
+    let e = p1.lastChild!, q = node.dom.lastChild!
+    ist(node.posFromDOM(e, 0), 3)
+    ist(node.posFromDOM(e, 1), 5)
+    ist(node.posFromDOM(e.firstChild!, 2), 5)
+    ist(node.posFromDOM(p2, 0), 9)
+    ist(node.posFromDOM(p2, 1), 10)
+    ist(node.posFromDOM(q, 0), 8)
+    ist(node.posFromDOM(q, 1), 11)
+  })
+
+  it("works in nodes with multiple wrappers", () => {
+    let dummy = Elt.mk("dummy")
+    let node = render(doc(p("ab")), Decoration.Tag.shape(Paragraph, Elt.mk("div", [dummy, Elt.mk("p", [dummy, 0, dummy]), dummy])))
+    let p0 = node.dom.querySelector("p")!, div = node.dom.querySelector("div")!
+    ist(node.posFromDOM(p0, 0), 1)
+    ist(node.posFromDOM(p0.firstChild!, 0), 1)
+    ist(node.posFromDOM(p0, 1), 1)
+    ist(node.posFromDOM(p0, 2), 3)
+    ist(node.posFromDOM(p0, 3), 3)
+    ist(node.posFromDOM(p0.lastChild!, 0), 3)
+    ist(node.posFromDOM(div, 0), 1)
+    ist(node.posFromDOM(div, 1), 1)
+    ist(node.posFromDOM(div, 2), 3)
+    ist(node.posFromDOM(div, 3), 3)
+  })
+
+  it("handles inline plot buffers correctly", () => {
+    let plot = Plot.define("Plot", {
+      inline: true,
+      inlineContent: true,
+      shape: {element: "span"}
+    })
+    Plot.Doc.noValidate(() => {
+      let node = render(doc(p("a", plot.create([Leaf.text("b")]), "c")))
+      let p0 = node.dom.querySelector("p")!, span = node.dom.querySelector("span")!
+      ist(node.posFromDOM(span, 0), 2)
+      ist(node.posFromDOM(span, 1), 3)
+      ist(node.posFromDOM(span, 2), 4)
+      ist(node.posFromDOM(span, 3), 5)
+      ist(node.posFromDOM(p0, 1), 2)
+      ist(node.posFromDOM(p0, 2), 5)
     })
   })
 })

@@ -546,6 +546,15 @@ describe("DocTile", () => {
       ist(tile.dom.innerHTML, `<p>a<span class="img"${uned}></span>b</p>`)
     })
 
+    it("properly handles insertions at the start and end of wrapping structure", () => {
+      let wrapPara = Decoration.Tag.shape(Paragraph, Elt.mk("div", [Elt.mk("p", [0])]))
+      let tile = render(doc(p("ab")), wrapPara)
+      tile = update(tile, {changes: {from: 3, insert: [Leaf.text("x")]}})
+      ist(tile.dom.innerHTML, "<div><p>abx</p></div>")
+      tile = update(tile, {changes: {from: 1, insert: [Leaf.text("y")]}})
+      ist(tile.dom.innerHTML, "<div><p>yabx</p></div>")
+    })
+
     it("can handle changes inside atomic plots", () => {
       let tile = render(doc(p("abcd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       let para = tile.dom.querySelector("para")

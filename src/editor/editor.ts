@@ -5,6 +5,7 @@ import {StyleModule, StyleSpec} from "style-mod"
 
 import {DocTile, updateAttributes} from "./tile"
 import {coordsAtPos} from "./coords"
+import {addUpdated} from "./changes"
 import {clipboardOutputFilter, clipboardOutputHTMLFilter, clipboardOutputTextFilter,
         clipboardInputFilter, clipboardInputHTMLFilter, clipboardInputTextFilter,
         clipboardTextParser, clipboardTextSerializer} from "./clipboard"
@@ -268,9 +269,9 @@ export class Wordgard {
                        this.state.textLTR)
   }
 
-  private runUpdate(update: Wordgard.Update, domChanges: ChangeSet.Sections | null) {
+  private runUpdate(update: Wordgard.Update, domChanges: readonly number[] | null) {
     let composition = this.composing ? getCompositionInfo(this) : null
-    let changes = domChanges ? ChangeSet.composeSections(domChanges, update.changes.sections) : update.changes.sections
+    let changes = domChanges ? addUpdated(update.changes.sections, domChanges) : update.changes.sections
     let prevDocTile = this.docTile
     if (!update.empty) {
       this.updatePlugins(update)
