@@ -109,7 +109,7 @@ function compareCanonical(a: CanonicalRelease, b: CanonicalRelease): number {
   return compareSemVer(a.version, b.version) || compareString(a.tag, b.tag) || compareString(a.commit, b.commit)
 }
 
-export function deduplicateCanonicalReleases(
+function deduplicateCanonicalReleases(
   canonical: readonly CanonicalRelease[],
 ): readonly CanonicalRelease[] {
   let normalized = new Map<string, CanonicalRelease>()
