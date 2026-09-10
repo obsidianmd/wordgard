@@ -109,6 +109,19 @@ function compareCanonical(a: CanonicalRelease, b: CanonicalRelease): number {
   return compareSemVer(a.version, b.version) || compareString(a.tag, b.tag) || compareString(a.commit, b.commit)
 }
 
+export function deduplicateCanonicalReleases(
+  canonical: readonly CanonicalRelease[],
+): readonly CanonicalRelease[] {
+  let normalized = new Map<string, CanonicalRelease>()
+  for (let release of canonical) {
+    let previous = normalized.get(release.version.normalized)
+    if (previous && previous.commit != release.commit)
+      throw new Error(`ambiguous canonical releases: ${previous.tag} and ${release.tag}`)
+    if (!previous || compareCanonical(release, previous) < 0) normalized.set(release.version.normalized, release)
+  }
+  return [...normalized.values()].sort(compareCanonical)
+}
+
 export function selectRelease(input: {
   canonical: readonly CanonicalRelease[]
   reachableCanonicalTags: ReadonlySet<string>
@@ -125,16 +138,9 @@ export function selectRelease(input: {
         compareSemVer(tag.version, watermark) > 0)
       watermark = tag.version
 
-  let candidates = input.canonical.filter(release =>
+  let candidates = deduplicateCanonicalReleases(input.canonical).filter(release =>
     input.reachableCanonicalTags.has(release.tag) && compareSemVer(release.version, watermark) > 0)
-  let normalized = new Map<string, CanonicalRelease>()
-  for (let release of candidates) {
-    let previous = normalized.get(release.version.normalized)
-    if (previous && previous.commit != release.commit)
-      throw new Error(`ambiguous canonical releases: ${previous.tag} and ${release.tag}`)
-    if (!previous || compareCanonical(release, previous) < 0) normalized.set(release.version.normalized, release)
-  }
-  candidates = [...normalized.values()].sort(compareCanonical)
+    .sort(compareCanonical)
   let selected = candidates.length ? candidates[candidates.length - 1] : null
   if (selected) {
     let tied = candidates.filter(release => compareSemVer(release.version, selected.version) == 0)

@@ -101,6 +101,20 @@ describe("release versions", () => {
     }
   })
 
+  it("fails on conflicting normalized aliases before eligibility filtering", () => {
+    let baseline = fork("obsidian-v1.0.0-1", "1.0.0", 1n)
+    let releases = [canonical("1.0.0", "one"), canonical("v1.0.0", "two")]
+    for (let reachableCanonicalTags of [new Set(["1.0.0"]), new Set<string>()]) {
+      assert.throws(() => selectRelease({
+        canonical: releases,
+        reachableCanonicalTags,
+        forkTags: [baseline],
+        completedReleaseTags: new Set(),
+        baselineTag: baseline.tag,
+      }), /ambiguous canonical releases: 1\.0\.0 and v1\.0\.0/)
+    }
+  })
+
   it("parses numeric prerelease endings against canonical versions", () => {
     let release = canonical("v1.0.0-rc.1", "canonical-commit")
     let parsed = parseForkTag("obsidian-v1.0.0-rc.1-2", "fork-commit", [release])

@@ -17,6 +17,9 @@ check_trusted_paths() {
 		.github/workflows/mirror-release.yml
 		bin/mirror-release.ts
 		bin/release-version.ts
+		.github/workflows/sync-upstream.yml
+		bin/upstream-sync-workflow.sh
+		bin/prepare-upstream-sync.sh
 	)
 	directory=$(mktemp -d)
 	trap 'rm -rf "$directory"' RETURN

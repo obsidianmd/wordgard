@@ -142,11 +142,13 @@ git -C "$trust_repo" config user.email "fork@example.com"
 mkdir -p "$trust_repo/.github/workflows" "$trust_repo/bin"
 printf 'name: CI\n' >"$trust_repo/.github/workflows/ci.yml"
 printf 'name: Mirror upstream release\n' >"$trust_repo/.github/workflows/mirror-release.yml"
+printf 'name: Sync upstream\n' >"$trust_repo/.github/workflows/sync-upstream.yml"
 printf 'console.log("mirror")\n' >"$trust_repo/bin/mirror-release.ts"
 printf 'export {}\n' >"$trust_repo/bin/release-version.ts"
-git -C "$trust_repo" add .github/workflows/ci.yml .github/workflows/mirror-release.yml \
-	bin/mirror-release.ts bin/release-version.ts
-git -C "$trust_repo" commit -m "Add trusted release controller" >/dev/null
+printf '#!/usr/bin/env bash\n' >"$trust_repo/bin/upstream-sync-workflow.sh"
+printf '#!/usr/bin/env bash\n' >"$trust_repo/bin/prepare-upstream-sync.sh"
+git -C "$trust_repo" add .github/workflows bin
+git -C "$trust_repo" commit -m "Add trusted synchronization and release controllers" >/dev/null
 
 cd "$trust_repo"
 staged_workflow_script="$tmp/staged-upstream-sync-workflow.sh"
@@ -163,6 +165,9 @@ privileged_paths=(
 	.github/workflows/mirror-release.yml
 	bin/mirror-release.ts
 	bin/release-version.ts
+	.github/workflows/sync-upstream.yml
+	bin/upstream-sync-workflow.sh
+	bin/prepare-upstream-sync.sh
 )
 for index in "${!privileged_paths[@]}"; do
 	path=${privileged_paths[$index]}

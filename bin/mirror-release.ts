@@ -6,6 +6,7 @@ import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {
   compareSemVer,
+  deduplicateCanonicalReleases,
   forkTagName,
   parseForkTag,
   parseSemVerTag,
@@ -34,6 +35,8 @@ type GitHubRelease = {
   body?: string
 }
 
+type GitHubReleaseInput = Omit<GitHubRelease, "id" | "body"> & {body: string}
+
 type GitHubIssue = {
   number: number
   state: "open" | "closed"
@@ -56,7 +59,7 @@ type FailureContext = {
 
 const issueTitle = "Upstream release mirroring requires attention"
 const transientStatuses = new Set([500, 502, 503, 504])
-const githubAttempts = 3
+const networkAttempts = 3
 
 class GitHubRequestError extends Error {
   readonly status: number | null
@@ -82,11 +85,17 @@ type RecoveryOutcome = {
   performed: boolean
 }
 
+type PublicationOutcome = {
+  tag: ForkReleaseTag
+  performed: true
+}
+
 type Discovery = {
   ciRun: CiRun
   forkTags: readonly ForkReleaseTag[]
   selection: ReleaseSelection
   recovery: RecoveryOutcome | null
+  publication?: PublicationOutcome
 }
 
 type DiscoveryOptions = {
@@ -100,6 +109,18 @@ function run(command: string, args: readonly string[], options: {cwd?: string} =
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim()
+}
+
+function runGitNetworkRead(args: readonly string[]): string {
+  for (let attempt = 1; attempt <= networkAttempts; attempt++) {
+    try {
+      return run("git", args)
+    } catch (error) {
+      if (attempt == networkAttempts) throw error
+      waitBeforeRetry()
+    }
+  }
+  throw new Error("unreachable Git network retry state")
 }
 
 function parseJson<T>(output: string, endpoint: string): T {
@@ -131,7 +152,8 @@ function githubRequestOnce(
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   })
-  if (result.error) throw result.error
+  if (result.error)
+    throw new GitHubRequestError(`GitHub API request failed for ${endpoint}: ${errorMessage(result.error)}`, null)
   if (result.status == 0) return {output: result.stdout.trim(), status: 200}
   let statusMatch = /\bHTTP ([0-9]{3})\b/.exec(result.stderr)
   let status = statusMatch ? Number(statusMatch[1]) : null
@@ -146,12 +168,13 @@ function githubRequest(
   endpoint: string,
   allowedStatuses: ReadonlySet<number> = new Set(),
 ): {output: string, status: number} {
-  for (let attempt = 1; attempt <= githubAttempts; attempt++) {
+  for (let attempt = 1; attempt <= networkAttempts; attempt++) {
     try {
       return githubRequestOnce(args, endpoint, allowedStatuses)
     } catch (error) {
-      if (!(error instanceof GitHubRequestError) || error.status == null ||
-          !transientStatuses.has(error.status) || attempt == githubAttempts)
+      if (!(error instanceof GitHubRequestError) ||
+          (error.status != null && !transientStatuses.has(error.status)) ||
+          attempt == networkAttempts)
         throw error
       waitBeforeRetry()
     }
@@ -206,7 +229,7 @@ function reconciledMutation<T>(
   body: object,
   reconcile: () => T | null,
 ): T {
-  for (let attempt = 1; attempt <= githubAttempts; attempt++) {
+  for (let attempt = 1; attempt <= networkAttempts; attempt++) {
     try {
       return githubMutation<T>(method, endpoint, body)
     } catch (error) {
@@ -221,7 +244,7 @@ function reconciledMutation<T>(
       }
       if (reconciled != null) return reconciled
       if (!(error instanceof GitHubRequestError) || error.status == null ||
-          !transientStatuses.has(error.status) || attempt == githubAttempts)
+          !transientStatuses.has(error.status) || attempt == networkAttempts)
         throw error
       waitBeforeRetry()
     }
@@ -229,14 +252,11 @@ function reconciledMutation<T>(
   throw new Error("unreachable GitHub mutation retry state")
 }
 
-function createRelease(
-  release: Omit<GitHubRelease, "id">,
-  tag: ForkReleaseTag,
-): GitHubRelease {
+function createRelease(release: GitHubReleaseInput): GitHubRelease {
   let endpoint = `repos/${requireEnvironment("GITHUB_REPOSITORY")}/releases`
   return reconciledMutation<GitHubRelease>("POST", endpoint, release, () => {
-    let existing = lookupRelease(tag.tag)
-    if (existing) validateRelease(existing, tag)
+    let existing = lookupRelease(release.tag_name)
+    if (existing) validateRelease(existing, release)
     return existing
   })
 }
@@ -279,7 +299,7 @@ function validateBaselineSyntax(tag: string): void {
 }
 
 function listRemoteTags(remote: "upstream" | "origin"): ReadonlyMap<string, string> {
-  let output = run("git", ["ls-remote", "--tags", "--refs", remote])
+  let output = runGitNetworkRead(["ls-remote", "--tags", "--refs", remote])
   let tags = new Map<string, string>()
   if (!output) return tags
   for (let line of output.split("\n")) {
@@ -298,9 +318,9 @@ function discoverRepositoryState(
   candidateSha: string,
   options: DiscoveryOptions = {},
 ): Discovery {
-  run("git", ["fetch", "--no-tags", "origin", "main"])
-  run("git", ["fetch", "--tags", "upstream"])
-  if (!options.collisionRetry) run("git", ["fetch", "--tags", "origin"])
+  runGitNetworkRead(["fetch", "--no-tags", "origin", "main"])
+  runGitNetworkRead(["fetch", "--tags", "upstream"])
+  if (!options.collisionRetry) runGitNetworkRead(["fetch", "--tags", "origin"])
 
   let upstreamTags = listRemoteTags("upstream")
   let originTags = listRemoteTags("origin")
@@ -325,7 +345,7 @@ function discoverRepositoryState(
   for (let [tag, object] of originTags) {
     if (!parseForkTag(tag, "", canonical)) continue
     if (options.collisionRetry)
-      run("git", ["fetch", "--no-tags", "origin", `refs/tags/${tag}`])
+      runGitNetworkRead(["fetch", "--no-tags", "origin", `refs/tags/${tag}`])
     let commit = run("git", ["rev-parse", `${object}^{commit}`]).toLowerCase()
     forkTags.push(parseForkTag(tag, commit, canonical)!)
   }
@@ -353,7 +373,7 @@ function discoverRepositoryState(
   let completedReleaseTags = new Set<string>()
   let incomplete: {tag: ForkReleaseTag, provenance: TagProvenance}[] = []
   let observedState: string[] = []
-  for (let tag of forkTags) {
+  for (let tag of [...forkTags].sort(compareForkTags)) {
     if (compareSemVer(tag.version, baseline.version) <= 0) continue
     let provenance = validateTagProvenance(tag, originTags.get(tag.tag)!, canonical, originMain)
     let release = lookupRelease(tag.tag)
@@ -362,7 +382,10 @@ function discoverRepositoryState(
       observedState.push(`${tag.tag}: tag exists, GitHub Release missing`)
       continue
     }
-    validateRelease(release, tag)
+    let previous = previousForkTag(baseline, forkTags, tag)
+    let canonicalRelease = canonical.find(release => release.tag == provenance.upstreamTag)!
+    let superseded = supersededCanonicalReleases(canonical, previous, tag)
+    validateRelease(release, releaseInputForTag(tag, canonicalRelease, previous.tag, superseded))
     completedReleaseTags.add(tag.tag)
     observedState.push(`${tag.tag}: tag and GitHub Release complete`)
   }
@@ -374,18 +397,16 @@ function discoverRepositoryState(
     let {tag, provenance} = incomplete[0]
     let performed = Boolean(options.createMissingRelease)
     if (performed) {
-      let previous = previousForkTag(baseline, forkTags, completedReleaseTags, tag)
+      let previous = previousForkTag(baseline, forkTags, tag)
       let canonicalRelease = canonical.find(release => release.tag == provenance.upstreamTag)!
-      let superseded = canonical.filter(release =>
-        compareSemVer(release.version, previous.version) > 0 &&
-        compareSemVer(release.version, tag.version) < 0 &&
-        isAncestor(release.commit, tag.commit))
+      let superseded = supersededCanonicalReleases(canonical, previous, tag)
       createReleaseForTag(tag, canonicalRelease, previous.tag, superseded)
       completedReleaseTags.add(tag.tag)
+      failureContext.observedRemoteState = `${tag.tag}: tag and GitHub Release complete`
     }
     let selection = selectRelease({
       canonical,
-      reachableCanonicalTags: new Set(),
+      reachableCanonicalTags: performed ? reachableCanonicalTags : new Set(),
       forkTags,
       completedReleaseTags,
       baselineTag,
@@ -403,11 +424,12 @@ function discoverRepositoryState(
   return {ciRun, forkTags, selection, recovery: null}
 }
 
-function validateRelease(release: GitHubRelease, tag: ForkReleaseTag): void {
+function validateRelease(release: GitHubRelease, expected: GitHubReleaseInput): void {
   if (!release || typeof release != "object" || typeof release.id != "number" ||
-      release.tag_name != tag.tag || release.name != releaseTitle(tag.version.normalized, tag.suffix) ||
-      release.draft !== false || release.prerelease !== Boolean(tag.version.prerelease.length))
-    throw new Error(`inconsistent GitHub Release for ${tag.tag}`)
+      release.tag_name != expected.tag_name || release.name != expected.name ||
+      release.draft !== expected.draft || release.prerelease !== expected.prerelease ||
+      release.body !== expected.body)
+    throw new Error(`inconsistent GitHub Release for ${expected.tag_name}`)
 }
 
 function parseTagProvenance(object: string, tag: ForkReleaseTag): TagProvenance {
@@ -467,18 +489,33 @@ function validateTagProvenance(
   return provenance
 }
 
+function compareForkTags(left: ForkReleaseTag, right: ForkReleaseTag): number {
+  return compareSemVer(left.version, right.version) ||
+    (left.suffix < right.suffix ? -1 : left.suffix > right.suffix ? 1 :
+      left.tag < right.tag ? -1 : left.tag > right.tag ? 1 : 0)
+}
+
+function supersededCanonicalReleases(
+  canonical: readonly CanonicalRelease[],
+  previous: ForkReleaseTag,
+  current: ForkReleaseTag,
+): readonly CanonicalRelease[] {
+  return deduplicateCanonicalReleases(canonical).filter(release =>
+    compareSemVer(release.version, previous.version) > 0 &&
+    compareSemVer(release.version, current.version) < 0 &&
+    isAncestor(release.commit, current.commit))
+}
+
 function previousForkTag(
   baseline: ForkReleaseTag,
   forkTags: readonly ForkReleaseTag[],
-  completed: ReadonlySet<string>,
   before: ForkReleaseTag,
 ): ForkReleaseTag {
   return forkTags.filter(tag =>
-    (tag.tag == baseline.tag || completed.has(tag.tag)) &&
+    (tag.tag == baseline.tag || compareSemVer(tag.version, baseline.version) > 0) &&
     (compareSemVer(tag.version, before.version) < 0 ||
       (compareSemVer(tag.version, before.version) == 0 && tag.suffix < before.suffix)))
-    .sort((left, right) => compareSemVer(left.version, right.version) ||
-      (left.suffix < right.suffix ? -1 : left.suffix > right.suffix ? 1 : 0))
+    .sort(compareForkTags)
     .at(-1) ?? baseline
 }
 
@@ -509,21 +546,46 @@ function releaseNotes(
   ].join("\n\n")
 }
 
+function releaseInputForTag(
+  tag: ForkReleaseTag,
+  canonical: CanonicalRelease,
+  previousTag: string,
+  superseded: readonly CanonicalRelease[],
+): GitHubReleaseInput {
+  return {
+    tag_name: tag.tag,
+    name: releaseTitle(tag.version.normalized, tag.suffix),
+    draft: false,
+    prerelease: Boolean(tag.version.prerelease.length),
+    body: releaseNotes(canonical, tag.tag, tag.commit, previousTag, superseded),
+  }
+}
+
 function createReleaseForTag(
   tag: ForkReleaseTag,
   canonical: CanonicalRelease,
   previousTag: string,
   superseded: readonly CanonicalRelease[],
 ): GitHubRelease {
-  let release = createRelease({
-    tag_name: tag.tag,
-    name: releaseTitle(tag.version.normalized, tag.suffix),
-    draft: false,
-    prerelease: Boolean(tag.version.prerelease.length),
-    body: releaseNotes(canonical, tag.tag, tag.commit, previousTag, superseded),
-  }, tag)
-  validateRelease(release, tag)
+  let expected = releaseInputForTag(tag, canonical, previousTag, superseded)
+  let release = createRelease(expected)
+  validateRelease(release, expected)
   return release
+}
+
+function pushTagWithMainGuard(tag: string, candidateSha: string): void {
+  // The lease expectation and source are identical, so main can only be a no-op;
+  // any remote change rejects the entire atomic branch-and-tag update.
+  let mainRef = "refs/heads/main"
+  let tagRef = `refs/tags/${tag}`
+  run("git", [
+    "push",
+    "--atomic",
+    `--force-with-lease=${mainRef}:${candidateSha}`,
+    "origin",
+    `${candidateSha}:${mainRef}`,
+    `${tagRef}:${tagRef}`,
+  ])
 }
 
 function publish(): Discovery {
@@ -562,7 +624,7 @@ function publish(): Discovery {
 
   let pushFailed = false
   try {
-    run("git", ["push", "origin", `refs/tags/${forkTag}:refs/tags/${forkTag}`])
+    pushTagWithMainGuard(forkTag, cliInputs.candidateSha)
   } catch {
     pushFailed = true
   }
@@ -577,7 +639,7 @@ function publish(): Discovery {
       forkTagName(retriedSelection.selected.version, retriedSelection.nextSuffix)
     if (retriedTag != forkTag)
       throw new Error(`tag push collision left unsafe remote state for ${forkTag}`)
-    run("git", ["push", "origin", `refs/tags/${forkTag}:refs/tags/${forkTag}`])
+    pushTagWithMainGuard(forkTag, cliInputs.candidateSha)
   }
 
   let remoteTags = listRemoteTags("origin")
@@ -592,16 +654,29 @@ function publish(): Discovery {
   let previous = refreshed.forkTags
     .filter(tag => tag.tag == refreshed.selection.baseline.tag ||
       compareSemVer(tag.version, refreshed.selection.baseline.version) > 0)
-    .sort((left, right) => compareSemVer(left.version, right.version) ||
-      (left.suffix < right.suffix ? -1 : left.suffix > right.suffix ? 1 : 0))
+    .sort(compareForkTags)
     .at(-1) ?? refreshed.selection.baseline
-  createReleaseForTag({
+  let publishedTag: ForkReleaseTag = {
     tag: forkTag,
     version: selected.version,
     suffix,
     commit: cliInputs.candidateSha,
-  }, selected, previous.tag, refreshed.selection.superseded)
-  return refreshed
+  }
+  createReleaseForTag(publishedTag, selected, previous.tag, refreshed.selection.superseded)
+  failureContext.observedRemoteState = `${forkTag}: tag and GitHub Release complete`
+  return {
+    ciRun: refreshed.ciRun,
+    forkTags: [...refreshed.forkTags, publishedTag],
+    selection: {
+      baseline: refreshed.selection.baseline,
+      watermark: selected.version,
+      selected: null,
+      superseded: [],
+      nextSuffix: null,
+    },
+    recovery: null,
+    publication: {tag: publishedTag, performed: true},
+  }
 }
 
 function buildPlan(discovery: Discovery): object {
@@ -611,11 +686,17 @@ function buildPlan(discovery: Discovery): object {
     candidateSha: cliInputs.candidateSha,
     ciRun: {id: discovery.ciRun.id, url: discovery.ciRun.html_url},
     watermark: discovery.selection.watermark.normalized,
+    ...(discovery.publication ? {publication: {
+      forkTag: discovery.publication.tag.tag,
+      action: "create-tag-and-release",
+      performed: discovery.publication.performed,
+    }} : {}),
     ...(discovery.recovery ? {recovery: {
       forkTag: discovery.recovery.tag.tag,
       action: "create-missing-release",
       performed: discovery.recovery.performed,
     }} : {}),
+    ...(discovery.recovery?.performed && selected ? {followUpRequired: true} : {}),
     selected: selected ? {
       tag: selected.tag,
       version: selected.version.normalized,
@@ -644,6 +725,10 @@ function findFailureIssue(): GitHubIssue | null {
   return null
 }
 
+function hostedRecoveryCommand(): string {
+  return `gh workflow run mirror-release.yml --repo ${requireEnvironment("GITHUB_REPOSITORY")} --ref main -f candidate_sha=${cliInputs.candidateSha} -f ci_run_id=${cliInputs.ciRunId}`
+}
+
 function failureIssueBody(error: unknown): string {
   let message = error instanceof Error ? error.message : String(error)
   let selected = failureContext.selected
@@ -659,10 +744,11 @@ function failureIssueBody(error: unknown): string {
     `Intended fork tag: ${failureContext.intendedForkTag ? `\`${failureContext.intendedForkTag}\`` : "not named"}`,
     `Observed remote state: ${failureContext.observedRemoteState ?? "unavailable"}`,
     "",
-    "Recover idempotently after correcting the reported state:",
+    "Recover idempotently through the hosted controller after correcting the reported state:",
     "```sh",
-    `node bin/mirror-release.ts publish ${cliInputs.baselineTag} ${cliInputs.candidateSha} ${cliInputs.ciRunId}`,
+    hostedRecoveryCommand(),
     "```",
+    "Dispatch inputs must identify the current tested `main`. A partial tag keeps its original CI authorization in its annotation.",
   ].join("\n")
 }
 
@@ -708,8 +794,7 @@ function commentOnFailureIssue(repository: string, issueNumber: number, body: st
     findFailureIssueComment(repository, issueNumber, body))
 }
 
-function reportFailure(error: unknown): void {
-  let body = failureIssueBody(error)
+function ensureFailureIssueOpen(body: string): void {
   let repository = requireEnvironment("GITHUB_REPOSITORY")
   let issue = findFailureIssue()
   if (!issue) {
@@ -718,6 +803,34 @@ function reportFailure(error: unknown): void {
   }
   if (issue.state == "closed") issue = setFailureIssueState(repository, issue.number, "open")
   commentOnFailureIssue(repository, issue.number, body)
+}
+
+function reportFailure(error: unknown): void {
+  ensureFailureIssueOpen(failureIssueBody(error))
+}
+
+function leaveRecoveryFollowUpIssueOpen(discovery: Discovery): void {
+  let recovery = discovery.recovery
+  let selected = discovery.selection.selected
+  let suffix = discovery.selection.nextSuffix
+  if (!recovery?.performed || !selected || suffix == null)
+    throw new Error("recovery follow-up requires a recovered tag and selected release")
+  let forkTag = forkTagName(selected.version, suffix)
+  failureContext.selected = selected
+  failureContext.intendedForkTag = forkTag
+  ensureFailureIssueOpen([
+    `Recovered \`${recovery.tag.tag}\` by creating its missing GitHub Release.`,
+    "",
+    "Recovery is terminal for this invocation; no second tag was published.",
+    `A newer canonical release remains eligible: \`${selected.tag}\` at \`${selected.commit}\`.`,
+    `Intended fork tag for the next invocation: \`${forkTag}\`.`,
+    "",
+    "Run the hosted controller again for the current tested `main`:",
+    "```sh",
+    hostedRecoveryCommand(),
+    "```",
+    "The dispatch inputs identify the current tested `main`; the recovered partial tag retains its original authorization in its annotation.",
+  ].join("\n"))
 }
 
 function closeFailureIssue(): void {
@@ -763,7 +876,10 @@ try {
     discovery = discoverRepositoryState(cliInputs.baselineTag, cliInputs.candidateSha)
   } else {
     discovery = publish()
-    closeFailureIssue()
+    if (discovery.recovery?.performed && discovery.selection.selected)
+      leaveRecoveryFollowUpIssueOpen(discovery)
+    else
+      closeFailureIssue()
   }
   process.stdout.write(`${JSON.stringify(buildPlan(discovery))}\n`)
 } catch (error) {
