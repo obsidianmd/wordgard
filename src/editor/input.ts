@@ -210,6 +210,11 @@ export class InputState {
     return this._domMapping
   }
 
+  get unflushedSelection() {
+    let {pending} = this.wg.viewState
+    return pending.some(tr => tr.selection && !tr.isUserEvent("input"))
+  }
+
   // Assign a position (in `state.doc`) to the given DOM position.
   // Takes unflushed DOM changes into account.
   posAtDOM(node: Node, offset: number, assoc: -1 | 1 = -1) {
@@ -235,6 +240,7 @@ export class InputState {
     let command = inputTypeCommands[type]
     if ((type == "deleteContentBackward" || type == "deleteContentForward") && range &&
         range.from != range.to && // Always run the command for empty ranges
+        !this.unflushedSelection && // Or if there is a selection-setting pending transaction
         (sel.empty
           ? !isSingleChar(this.domDoc, data.domRange!.from, data.domRange!.to) ||
             sel.head != (type == "deleteContentBackward" ? range.to : range.from)
@@ -245,10 +251,11 @@ export class InputState {
       Command.dispatch(wg, command)
     } else if (type == "insertText") {
       let insert = event.data!.replace(/\r\n?|\n/g, " ")
-      Command.dispatch(wg, insertText, {from: range!.from, to: range!.to, insert, userEvent: "input.type"})
+      let {from, to} = this.unflushedSelection ? wg.state.selection : range!
+      Command.dispatch(wg, insertText, {from, to, insert, userEvent: "input.type"})
     } else if ((type == "insertReplacementText" || type == "insertFromYank")) {
       let read = readClipboard(wg.state, event.dataTransfer!, wg.state.sel.head, true)
-      let {from, to} = range!
+      let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       let sel = wg.state.selection, touchesSel = from <= sel.to && to >= sel.from
       if (read) wg.dispatch({
         changes: {from, to, insert: read.slice, fit: read.context},
