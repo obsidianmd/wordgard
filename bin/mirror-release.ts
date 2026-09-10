@@ -18,6 +18,7 @@ import {
 type CiRun = {
   id: number
   event: string
+  path: string
   head_branch: string
   head_sha: string
   conclusion: string | null
@@ -245,6 +246,8 @@ function validateCiRun(ciRun: CiRun, candidateSha: string, expectedRunId = cliIn
   if (typeof ciRun.id != "number" || ciRun.id != expectedRunId)
     throw new Error("CI run ID does not match requested run")
   if (ciRun.event != "push") throw new Error("CI run event must be push")
+  if (ciRun.path != ".github/workflows/ci.yml")
+    throw new Error("CI run workflow path must be .github/workflows/ci.yml")
   if (ciRun.head_branch != "main") throw new Error("CI run head branch must be main")
   if (typeof ciRun.head_sha != "string" || ciRun.head_sha.toLowerCase() != candidateSha)
     throw new Error("CI run head SHA does not match candidate")

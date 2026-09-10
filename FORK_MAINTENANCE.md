@@ -45,13 +45,13 @@ Never force-push `main` and never commit unresolved conflict markers.
 
 ## Automatic fork releases
 
-Canonical Git tags are the sole upstream release signal. Every valid SemVer tag is eligible, including all prereleases. After a push to `main`, `CI / Test` must complete successfully for that exact current `origin/main` commit. The `Mirror upstream release` workflow then selects only the highest eligible SemVer newer than the completed release watermark. Lower eligible versions are recorded as superseded rather than published separately.
+Canonical Git tags are the sole upstream release signal. Every valid SemVer tag whose commit is reachable from the validated current `main` is eligible, including all prereleases. After a push to `main`, `CI / Test` from `.github/workflows/ci.yml` must complete successfully for that exact current `origin/main` commit. The `Mirror upstream release` workflow then selects only the highest eligible SemVer newer than the completed release watermark. Lower eligible versions are recorded as superseded rather than published separately.
 
 `obsidian-v0.3.1-2` is the tag-only historical baseline. It establishes the watermark and is not backfilled with a GitHub Release. For each newly selected canonical release, the workflow publishes an immutable annotated tag named `obsidian-v<upstream-version>-<fork-release>` on the validated `main` commit, then creates the corresponding GitHub Release. The suffix is one greater than the maximum existing suffix for that upstream version. Existing tags are never moved, overwritten, or reused; an inconsistent tag or collision stops publication instead of rewriting remote state.
 
 Every GitHub Release is non-draft. A stable canonical version sets the prerelease flag to false; a SemVer prerelease sets it to true. Generated notes identify the canonical tag and commit, the fork commit, any superseded canonical tags, and a permalink to `FORK_PATCHES.md` at the immutable fork tag. The notes do not infer patch statuses: the ledger remains authoritative.
 
-Publication failures create or update one deduplicated issue titled **Upstream release mirroring requires attention**. After correcting the reported state, a maintainer can recover idempotently with the same candidate SHA and successful CI run ID. The controller validates that the run was a successful push-triggered `CI` run on `main`, that its head SHA matches the candidate, and that the candidate is still current `origin/main`. If an annotated tag was published before GitHub Release creation failed, recovery validates its provenance and creates only the missing Release.
+Publication failures create or update one deduplicated issue titled **Upstream release mirroring requires attention**. After correcting the reported state, a maintainer can recover idempotently with the same candidate SHA and successful CI run ID. The controller validates that the run path is exactly `.github/workflows/ci.yml`, that it was successful and push-triggered on `main`, that its head SHA matches the candidate, and that the candidate is still current `origin/main`. Recovery applies the same exact workflow-path check when revalidating tag provenance. If an annotated tag was published before GitHub Release creation failed, recovery validates its provenance and creates only the missing Release.
 
 The following is a maintainer-run hosted recovery example. Local repository preparation must not run it:
 
@@ -84,7 +84,7 @@ GitHub Actions must be allowed to create pull requests. Keep the repository's de
 - `Sync upstream`: `actions: write`, `contents: write`, `pull-requests: write`, and `issues: write`;
 - `Mirror upstream release`: `actions: read`, `contents: write`, and `issues: write`.
 
-Protect `main` by requiring a pull request, one approval, and the strict `CI / Test` status check. Keep push-triggered `CI` enabled on `main`; release publication accepts only a successful push-triggered run for the exact current `main` commit. Enable merge commits and disable squash and rebase merging so patch commits and trailers survive.
+Protect `main` by requiring a pull request, one approval, and the strict `CI / Test` status check. Keep push-triggered `CI` from `.github/workflows/ci.yml` enabled on `main`; release publication accepts only a successful push-triggered run of that exact workflow for the exact current `main` commit. Enable merge commits and disable squash and rebase merging so patch commits and trailers survive.
 
 Add tag rules for `obsidian-v*` that prevent tag updates and deletion while allowing GitHub Actions to create new matching tags. Do not grant the release workflow permission to bypass update or deletion protection.
 
