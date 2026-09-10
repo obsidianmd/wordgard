@@ -6,7 +6,6 @@ import {tmpdir} from "node:os"
 import {join} from "node:path"
 import {
   compareSemVer,
-  deduplicateCanonicalReleases,
   forkTagName,
   parseForkTag,
   parseSemVerTag,
@@ -78,6 +77,8 @@ type TagProvenance = {
   forkCommit: string
   ciRunId: number
   ciRunUrl: string
+  previousForkTag: string
+  supersededCanonicalTags: readonly string[]
 }
 
 type RecoveryOutcome = {
@@ -313,12 +314,20 @@ function listRemoteTags(remote: "upstream" | "origin"): ReadonlyMap<string, stri
   return tags
 }
 
+function fetchOriginMainForCandidate(candidateSha: string): string {
+  runGitNetworkRead(["fetch", "--no-tags", "origin", "main"])
+  let originMain = run("git", ["rev-parse", "refs/remotes/origin/main"]).toLowerCase()
+  if (!isAncestor(candidateSha, originMain))
+    throw new Error("candidate SHA is not an ancestor of origin/main")
+  return originMain
+}
+
 function discoverRepositoryState(
   baselineTag: string,
   candidateSha: string,
   options: DiscoveryOptions = {},
 ): Discovery {
-  runGitNetworkRead(["fetch", "--no-tags", "origin", "main"])
+  let originMain = fetchOriginMainForCandidate(candidateSha)
   runGitNetworkRead(["fetch", "--tags", "upstream"])
   if (!options.collisionRetry) runGitNetworkRead(["fetch", "--tags", "origin"])
 
@@ -352,9 +361,6 @@ function discoverRepositoryState(
   let baseline = forkTags.find(tag => tag.tag == baselineTag)
   if (!baseline) throw new Error(`baseline tag not found: ${baselineTag}`)
 
-  let originMain = run("git", ["rev-parse", "refs/remotes/origin/main"]).toLowerCase()
-  if (candidateSha != originMain) throw new Error("candidate SHA is not origin/main")
-
   let ciRun = githubJson<CiRun>(
     `repos/${requireEnvironment("GITHUB_REPOSITORY")}/actions/runs/${cliInputs.ciRunId}`,
   )
@@ -375,17 +381,26 @@ function discoverRepositoryState(
   let observedState: string[] = []
   for (let tag of [...forkTags].sort(compareForkTags)) {
     if (compareSemVer(tag.version, baseline.version) <= 0) continue
-    let provenance = validateTagProvenance(tag, originTags.get(tag.tag)!, canonical, originMain)
+    let provenance = validateTagProvenance(
+      tag,
+      originTags.get(tag.tag)!,
+      canonical,
+      forkTags,
+      originMain,
+    )
     let release = lookupRelease(tag.tag)
     if (!release) {
       incomplete.push({tag, provenance})
       observedState.push(`${tag.tag}: tag exists, GitHub Release missing`)
       continue
     }
-    let previous = previousForkTag(baseline, forkTags, tag)
     let canonicalRelease = canonical.find(release => release.tag == provenance.upstreamTag)!
-    let superseded = supersededCanonicalReleases(canonical, previous, tag)
-    validateRelease(release, releaseInputForTag(tag, canonicalRelease, previous.tag, superseded))
+    validateRelease(release, releaseInputForTag(
+      tag,
+      canonicalRelease,
+      provenance.previousForkTag,
+      provenance.supersededCanonicalTags,
+    ))
     completedReleaseTags.add(tag.tag)
     observedState.push(`${tag.tag}: tag and GitHub Release complete`)
   }
@@ -397,10 +412,13 @@ function discoverRepositoryState(
     let {tag, provenance} = incomplete[0]
     let performed = Boolean(options.createMissingRelease)
     if (performed) {
-      let previous = previousForkTag(baseline, forkTags, tag)
       let canonicalRelease = canonical.find(release => release.tag == provenance.upstreamTag)!
-      let superseded = supersededCanonicalReleases(canonical, previous, tag)
-      createReleaseForTag(tag, canonicalRelease, previous.tag, superseded)
+      createReleaseForTag(
+        tag,
+        canonicalRelease,
+        provenance.previousForkTag,
+        provenance.supersededCanonicalTags,
+      )
       completedReleaseTags.add(tag.tag)
       failureContext.observedRemoteState = `${tag.tag}: tag and GitHub Release complete`
     }
@@ -432,34 +450,79 @@ function validateRelease(release: GitHubRelease, expected: GitHubReleaseInput): 
     throw new Error(`inconsistent GitHub Release for ${expected.tag_name}`)
 }
 
+function invalidTagProvenance(tag: ForkReleaseTag): never {
+  throw new Error(`invalid provenance for ${tag.tag}`)
+}
+
+function parseSupersededCanonicalTags(input: string, tag: ForkReleaseTag): readonly string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(input)
+  } catch {
+    return invalidTagProvenance(tag)
+  }
+  if (!Array.isArray(parsed) || !parsed.every(value => typeof value == "string") ||
+      JSON.stringify(parsed) != input)
+    return invalidTagProvenance(tag)
+
+  let names = parsed as string[]
+  let normalizedVersions = new Set<string>()
+  let previousName: string | null = null
+  let previousVersion: ReturnType<typeof parseSemVerTag> = null
+  for (let name of names) {
+    let version = parseSemVerTag(name)
+    if (!version || normalizedVersions.has(version.normalized)) return invalidTagProvenance(tag)
+    if (previousName != null && previousVersion != null) {
+      let order = compareSemVer(previousVersion, version)
+      if (order > 0 || (order == 0 && previousName >= name)) return invalidTagProvenance(tag)
+    }
+    normalizedVersions.add(version.normalized)
+    previousName = name
+    previousVersion = version
+  }
+  return names
+}
+
 function parseTagProvenance(object: string, tag: ForkReleaseTag): TagProvenance {
   let raw = run("git", ["cat-file", "-p", object])
   let separator = raw.indexOf("\n\n")
   let tagObject = /^object ([0-9a-fA-F]{40})\ntype commit\ntag ([^\n]+)\n/.exec(raw)
   if (separator < 0 || !tagObject || tagObject[1].toLowerCase() != tag.commit ||
       tagObject[2] != tag.tag)
-    throw new Error(`invalid provenance for ${tag.tag}`)
+    return invalidTagProvenance(tag)
   let message = raw.slice(separator + 2)
   let expectedTitle = releaseTitle(tag.version.normalized, tag.suffix)
-  if (message.split("\n", 1)[0] != expectedTitle) throw new Error(`invalid provenance for ${tag.tag}`)
+  if (message.split("\n", 1)[0] != expectedTitle) return invalidTagProvenance(tag)
   let values = new Map<string, string>()
-  for (let field of ["Upstream-Tag", "Upstream-Commit", "Fork-Commit", "CI-Run-ID", "CI-Run-URL"]) {
+  for (let field of [
+    "Upstream-Tag",
+    "Upstream-Commit",
+    "Fork-Commit",
+    "CI-Run-ID",
+    "CI-Run-URL",
+    "Previous-Fork-Tag",
+    "Superseded-Canonical-Tags",
+  ]) {
     let matches = [...message.matchAll(new RegExp(`^${field}: (.*)$`, "gm"))]
-    if (matches.length != 1 || !matches[0][1]) throw new Error(`invalid provenance for ${tag.tag}`)
+    if (matches.length != 1 || !matches[0][1]) return invalidTagProvenance(tag)
     values.set(field, matches[0][1])
   }
   let ciRunInput = values.get("CI-Run-ID")!
   if (!/^[1-9][0-9]*$/.test(ciRunInput) || !Number.isSafeInteger(Number(ciRunInput)))
-    throw new Error(`invalid provenance for ${tag.tag}`)
+    return invalidTagProvenance(tag)
   for (let field of ["Upstream-Commit", "Fork-Commit"])
-    if (!/^[0-9a-fA-F]{40}$/.test(values.get(field)!))
-      throw new Error(`invalid provenance for ${tag.tag}`)
+    if (!/^[0-9a-fA-F]{40}$/.test(values.get(field)!)) return invalidTagProvenance(tag)
   return {
     upstreamTag: values.get("Upstream-Tag")!,
     upstreamCommit: values.get("Upstream-Commit")!.toLowerCase(),
     forkCommit: values.get("Fork-Commit")!.toLowerCase(),
     ciRunId: Number(ciRunInput),
     ciRunUrl: values.get("CI-Run-URL")!,
+    previousForkTag: values.get("Previous-Fork-Tag")!,
+    supersededCanonicalTags: parseSupersededCanonicalTags(
+      values.get("Superseded-Canonical-Tags")!,
+      tag,
+    ),
   }
 }
 
@@ -467,6 +530,7 @@ function validateTagProvenance(
   tag: ForkReleaseTag,
   object: string,
   canonical: readonly CanonicalRelease[],
+  forkTags: readonly ForkReleaseTag[],
   originMain: string,
 ): TagProvenance {
   let provenance = parseTagProvenance(object, tag)
@@ -475,9 +539,18 @@ function validateTagProvenance(
   let upstream = canonical.find(release => release.tag == provenance.upstreamTag)
   if (!upstream || upstream.version.normalized != tag.version.normalized ||
       upstream.commit != provenance.upstreamCommit)
-    throw new Error(`invalid provenance for ${tag.tag}`)
+    return invalidTagProvenance(tag)
   if (!isAncestor(upstream.commit, tag.commit))
     throw new Error(`canonical upstream commit is not an ancestor of tag target: ${tag.tag}`)
+
+  let previous = forkTags.find(previousTag => previousTag.tag == provenance.previousForkTag)
+  if (!previous || compareForkTags(previous, tag) >= 0) return invalidTagProvenance(tag)
+  for (let supersededTag of provenance.supersededCanonicalTags) {
+    let version = parseSemVerTag(supersededTag)!
+    if (compareSemVer(version, previous.version) <= 0 || compareSemVer(version, tag.version) >= 0)
+      return invalidTagProvenance(tag)
+  }
+
   let ciRun = githubJson<CiRun>(
     `repos/${requireEnvironment("GITHUB_REPOSITORY")}/actions/runs/${provenance.ciRunId}`,
   )
@@ -493,17 +566,6 @@ function compareForkTags(left: ForkReleaseTag, right: ForkReleaseTag): number {
   return compareSemVer(left.version, right.version) ||
     (left.suffix < right.suffix ? -1 : left.suffix > right.suffix ? 1 :
       left.tag < right.tag ? -1 : left.tag > right.tag ? 1 : 0)
-}
-
-function supersededCanonicalReleases(
-  canonical: readonly CanonicalRelease[],
-  previous: ForkReleaseTag,
-  current: ForkReleaseTag,
-): readonly CanonicalRelease[] {
-  return deduplicateCanonicalReleases(canonical).filter(release =>
-    compareSemVer(release.version, previous.version) > 0 &&
-    compareSemVer(release.version, current.version) < 0 &&
-    isAncestor(release.commit, current.commit))
 }
 
 function previousForkTag(
@@ -528,11 +590,11 @@ function releaseNotes(
   forkTag: string,
   forkCommit: string,
   previousTag: string,
-  superseded: readonly CanonicalRelease[],
+  supersededTags: readonly string[],
 ): string {
   let repositoryUrl = `${requireEnvironment("GITHUB_SERVER_URL")}/${requireEnvironment("GITHUB_REPOSITORY")}`
-  let skipped = superseded.length
-    ? superseded.map(release => `\`${release.tag}\``).join(", ")
+  let skipped = supersededTags.length
+    ? supersededTags.map(tag => `\`${tag}\``).join(", ")
     : "None"
   return [
     `Canonical tag: \`${selected.tag}\``,
@@ -550,14 +612,14 @@ function releaseInputForTag(
   tag: ForkReleaseTag,
   canonical: CanonicalRelease,
   previousTag: string,
-  superseded: readonly CanonicalRelease[],
+  supersededTags: readonly string[],
 ): GitHubReleaseInput {
   return {
     tag_name: tag.tag,
     name: releaseTitle(tag.version.normalized, tag.suffix),
     draft: false,
     prerelease: Boolean(tag.version.prerelease.length),
-    body: releaseNotes(canonical, tag.tag, tag.commit, previousTag, superseded),
+    body: releaseNotes(canonical, tag.tag, tag.commit, previousTag, supersededTags),
   }
 }
 
@@ -565,27 +627,18 @@ function createReleaseForTag(
   tag: ForkReleaseTag,
   canonical: CanonicalRelease,
   previousTag: string,
-  superseded: readonly CanonicalRelease[],
+  supersededTags: readonly string[],
 ): GitHubRelease {
-  let expected = releaseInputForTag(tag, canonical, previousTag, superseded)
+  let expected = releaseInputForTag(tag, canonical, previousTag, supersededTags)
   let release = createRelease(expected)
   validateRelease(release, expected)
   return release
 }
 
-function pushTagWithMainGuard(tag: string, candidateSha: string): void {
-  // The lease expectation and source are identical, so main can only be a no-op;
-  // any remote change rejects the entire atomic branch-and-tag update.
-  let mainRef = "refs/heads/main"
+function pushTag(tag: string, candidateSha: string): void {
+  fetchOriginMainForCandidate(candidateSha)
   let tagRef = `refs/tags/${tag}`
-  run("git", [
-    "push",
-    "--atomic",
-    `--force-with-lease=${mainRef}:${candidateSha}`,
-    "origin",
-    `${candidateSha}:${mainRef}`,
-    `${tagRef}:${tagRef}`,
-  ])
+  run("git", ["push", "origin", `${tagRef}:${tagRef}`])
 }
 
 function publish(): Discovery {
@@ -598,6 +651,14 @@ function publish(): Discovery {
 
   let suffix = refreshed.selection.nextSuffix
   let forkTag = forkTagName(selected.version, suffix)
+  let publishedTag: ForkReleaseTag = {
+    tag: forkTag,
+    version: selected.version,
+    suffix,
+    commit: cliInputs.candidateSha,
+  }
+  let previous = previousForkTag(refreshed.selection.baseline, refreshed.forkTags, publishedTag)
+  let supersededTags = refreshed.selection.superseded.map(release => release.tag)
   let title = releaseTitle(selected.version.normalized, suffix)
   failureContext.selected = selected
   failureContext.intendedForkTag = forkTag
@@ -609,6 +670,8 @@ function publish(): Discovery {
     `Fork-Commit: ${cliInputs.candidateSha}`,
     `CI-Run-ID: ${refreshed.ciRun.id}`,
     `CI-Run-URL: ${refreshed.ciRun.html_url}`,
+    `Previous-Fork-Tag: ${previous.tag}`,
+    `Superseded-Canonical-Tags: ${JSON.stringify(supersededTags)}`,
     "",
   ].join("\n")
   let directory = mkdtempSync(join(tmpdir(), "wordgard-tag-"))
@@ -624,7 +687,7 @@ function publish(): Discovery {
 
   let pushFailed = false
   try {
-    pushTagWithMainGuard(forkTag, cliInputs.candidateSha)
+    pushTag(forkTag, cliInputs.candidateSha)
   } catch {
     pushFailed = true
   }
@@ -639,7 +702,7 @@ function publish(): Discovery {
       forkTagName(retriedSelection.selected.version, retriedSelection.nextSuffix)
     if (retriedTag != forkTag)
       throw new Error(`tag push collision left unsafe remote state for ${forkTag}`)
-    pushTagWithMainGuard(forkTag, cliInputs.candidateSha)
+    pushTag(forkTag, cliInputs.candidateSha)
   }
 
   let remoteTags = listRemoteTags("origin")
@@ -651,18 +714,7 @@ function publish(): Discovery {
   failureContext.observedRemoteState =
     `${forkTag}: tag points to ${remoteCommit}, GitHub Release missing`
 
-  let previous = refreshed.forkTags
-    .filter(tag => tag.tag == refreshed.selection.baseline.tag ||
-      compareSemVer(tag.version, refreshed.selection.baseline.version) > 0)
-    .sort(compareForkTags)
-    .at(-1) ?? refreshed.selection.baseline
-  let publishedTag: ForkReleaseTag = {
-    tag: forkTag,
-    version: selected.version,
-    suffix,
-    commit: cliInputs.candidateSha,
-  }
-  createReleaseForTag(publishedTag, selected, previous.tag, refreshed.selection.superseded)
+  createReleaseForTag(publishedTag, selected, previous.tag, supersededTags)
   failureContext.observedRemoteState = `${forkTag}: tag and GitHub Release complete`
   return {
     ciRun: refreshed.ciRun,
@@ -748,7 +800,7 @@ function failureIssueBody(error: unknown): string {
     "```sh",
     hostedRecoveryCommand(),
     "```",
-    "Dispatch inputs must identify the current tested `main`. A partial tag keeps its original CI authorization in its annotation.",
+    "Dispatch inputs must identify a successful push-to-`main` CI run and its exact tested candidate; that candidate SHA must remain an ancestor of current `origin/main`. A partial tag keeps its original CI authorization in its annotation.",
   ].join("\n")
 }
 
@@ -825,11 +877,11 @@ function leaveRecoveryFollowUpIssueOpen(discovery: Discovery): void {
     `A newer canonical release remains eligible: \`${selected.tag}\` at \`${selected.commit}\`.`,
     `Intended fork tag for the next invocation: \`${forkTag}\`.`,
     "",
-    "Run the hosted controller again for the current tested `main`:",
+    "Run the hosted controller again for the successful push-to-`main` CI candidate:",
     "```sh",
     hostedRecoveryCommand(),
     "```",
-    "The dispatch inputs identify the current tested `main`; the recovered partial tag retains its original authorization in its annotation.",
+    "The candidate must remain an ancestor of current `origin/main`; the recovered partial tag retains its original authorization in its annotation.",
   ].join("\n"))
 }
 

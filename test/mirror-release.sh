@@ -191,21 +191,9 @@ case "\${1-}" in
       \$4 =~ ^[0-9a-fA-F]{40}\$ && \$5 == -F && -f \$6 ]] || exit 91
     ;;
   push)
-    source_ref=
-    destination_ref=
-    if [[ \$# == 3 && \$2 == origin ]]; then
-      source_ref=\${3%%:*}
-      destination_ref=\${3#*:}
-    elif [[ \$# == 6 && \$2 == --atomic && \$4 == origin ]]; then
-      branch_source=\${5%%:*}
-      branch_destination=\${5#*:}
-      source_ref=\${6%%:*}
-      destination_ref=\${6#*:}
-      [[ \$3 == "--force-with-lease=refs/heads/main:\$branch_source" &&
-        \$branch_source =~ ^[0-9a-fA-F]{40}\$ && \$branch_destination == refs/heads/main ]] || exit 91
-    else
-      exit 91
-    fi
+    [[ \$# == 3 && \$2 == origin ]] || exit 91
+    source_ref=\${3%%:*}
+    destination_ref=\${3#*:}
     [[ \$source_ref == \$destination_ref &&
       \$source_ref =~ ^refs/tags/obsidian-v[0-9A-Za-z.+-]+-[1-9][0-9]*\$ ]] || exit 91
     if [[ -n \${MOCK_PUSH_ADVANCE_MAIN_SHA:-} && ! -e \${MOCK_PUSH_ADVANCE_MAIN_STATE:?} ]]; then
@@ -523,12 +511,19 @@ node -e '
 [[ $("$real_git" --git-dir="$origin" tag --list "$stable_tag") == "$stable_tag" ]]
 [[ $("$real_git" --git-dir="$origin" rev-parse "$stable_tag^{commit}") == "$candidate_sha" ]]
 stable_message=$("$real_git" --git-dir="$origin" tag -l --format='%(contents)' "$stable_tag")
-[[ $stable_message == *"Obsidian Wordgard 0.5.0 fork release 1"* ]]
-[[ $stable_message == *"Upstream-Tag: v0.5.0"* ]]
-[[ $stable_message == *"Upstream-Commit: $candidate_sha"* ]]
-[[ $stable_message == *"Fork-Commit: $candidate_sha"* ]]
-[[ $stable_message == *"CI-Run-ID: 101"* ]]
-[[ $stable_message == *"CI-Run-URL: https://github.example/runs/101"* ]]
+expected_stable_message=$(cat <<EOF
+Obsidian Wordgard 0.5.0 fork release 1
+
+Upstream-Tag: v0.5.0
+Upstream-Commit: $candidate_sha
+Fork-Commit: $candidate_sha
+CI-Run-ID: 101
+CI-Run-URL: https://github.example/runs/101
+Previous-Fork-Tag: obsidian-v0.3.1-2
+Superseded-Canonical-Tags: ["0.4.0"]
+EOF
+)
+diff -u <(printf '%s\n' "$expected_stable_message") <(printf '%s\n' "$stable_message")
 release_file="$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$stable_tag").json"
 node -e '
   const assert = require("node:assert/strict")
@@ -554,11 +549,15 @@ node -e '
   assert(create.includes("--input"))
   assert(!create.join(" ").includes("$(touch"))
 ' "$MIRROR_GH_LOG"
-expected_stable_push="push --atomic --force-with-lease=refs/heads/main:$candidate_sha origin $candidate_sha:refs/heads/main refs/tags/$stable_tag:refs/tags/$stable_tag "
+expected_stable_push="push origin refs/tags/$stable_tag:refs/tags/$stable_tag "
 [[ $(grep -Fxc "$expected_stable_push" "$MIRROR_GIT_LOG") -eq 1 ]]
 [[ $("$real_git" --git-dir="$origin" rev-parse refs/heads/main) == "$candidate_sha" ]]
-[[ $({ grep '^push ' "$MIRROR_GIT_LOG" || true; }) != *' --force '* ]]
-[[ $({ grep '^push ' "$MIRROR_GIT_LOG" || true; }) != *' +refs/'* ]]
+push_log=$({ grep '^push ' "$MIRROR_GIT_LOG" || true; })
+[[ $push_log != *'--force'* ]]
+[[ $push_log != *'--atomic'* ]]
+[[ $push_log != *'refs/heads/'* ]]
+[[ $push_log != *' +refs/'* ]]
+[[ $push_log != 'push origin :'* ]]
 
 # Complete state is idempotent and no eligible canonical version is a no-op.
 : > "$MIRROR_GIT_LOG"
@@ -587,6 +586,9 @@ node -e '
   assert.equal(release.draft, false)
   assert.equal(release.prerelease, true)
 ' "$prerelease_file"
+prerelease_message=$("$real_git" --git-dir="$origin" tag -l --format='%(contents)' "$prerelease_tag")
+[[ $prerelease_message == *"Previous-Fork-Tag: $stable_tag"* ]]
+[[ $prerelease_message == *'Superseded-Canonical-Tags: []'* ]]
 candidate_sha=$prerelease_sha
 export MOCK_CI_SHA="$candidate_sha"
 [[ ! -e "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' obsidian-v0.3.1-2).json" ]]
@@ -638,31 +640,38 @@ create_fork_tag() {
 
 valid_annotation() {
   local tag=$1 target=$2 run_id=$3 upstream_tag=${4:-0.6.0-rc.1}
+  local previous_tag=${5:-obsidian-v0.6.0-rc.1-1} superseded_json=${6:-[]}
   local version=${tag#obsidian-v} suffix
   suffix=${version##*-}
   version=${version%-"$suffix"}
   local upstream_commit
   upstream_commit=$("$real_git" -C "$work" rev-parse "$upstream_tag^{commit}")
-  printf '%s\n\n%s\n%s\n%s\n%s\n%s' \
+  printf '%s\n\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
     "Obsidian Wordgard $version fork release $suffix" \
     "Upstream-Tag: $upstream_tag" \
     "Upstream-Commit: $upstream_commit" \
     "Fork-Commit: $target" \
     "CI-Run-ID: $run_id" \
-    "CI-Run-URL: https://github.example/runs/$run_id"
+    "CI-Run-URL: https://github.example/runs/$run_id" \
+    "Previous-Fork-Tag: $previous_tag" \
+    "Superseded-Canonical-Tags: $superseded_json"
 }
 
 write_release() {
   local tag=$1 upstream_tag=${2:-0.6.0-rc.1}
-  local previous_tag=${3:-obsidian-v0.6.0-rc.1-1} superseded=${4:-None}
+  local previous_tag=${3:-obsidian-v0.6.0-rc.1-1} superseded_json=${4:-[]}
   local fork_commit upstream_commit
   fork_commit=$("$real_git" --git-dir="$origin" rev-parse "$tag^{commit}")
   upstream_commit=$("$real_git" -C "$work" rev-parse "$upstream_tag^{commit}")
   node -e '
     const fs = require("node:fs"), path = require("node:path")
-    const [directory, tag, upstreamTag, upstreamCommit, forkCommit, previousTag, superseded] = process.argv.slice(1)
+    const [directory, tag, upstreamTag, upstreamCommit, forkCommit, previousTag, supersededJson] = process.argv.slice(1)
     const match = /^obsidian-v(.+)-([1-9][0-9]*)$/.exec(tag)
     const repositoryUrl = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}`
+    const supersededTags = JSON.parse(supersededJson)
+    const superseded = supersededTags.length
+      ? supersededTags.map(value => `\`${value}\``).join(", ")
+      : "None"
     const body = [
       `Canonical tag: \`${upstreamTag}\``,
       `Upstream commit: \`${upstreamCommit}\``,
@@ -678,7 +687,7 @@ write_release() {
       draft: false, prerelease: match[1].includes("-"), body}
     fs.writeFileSync(path.join(directory, encodeURIComponent(tag) + ".json"), JSON.stringify(release))
   ' "$MOCK_GH_STATE/releases" "$tag" "$upstream_tag" "$upstream_commit" \
-    "$fork_commit" "$previous_tag" "$superseded"
+    "$fork_commit" "$previous_tag" "$superseded_json"
 }
 
 add_new_canonical_release() {
@@ -690,6 +699,18 @@ add_new_canonical_release() {
   "$real_git" -C "$work" push -q upstream main 0.7.0
   export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=240
 }
+
+# A canonical maintenance tag discovered after publication must not alter the
+# immutable body expected for an already-complete GitHub Release.
+activate_case completed-release-after-late-canonical-tag
+late_tag_target=$("$real_git" --git-dir="$origin" rev-parse 'obsidian-v0.5.0-1^{commit}')
+"$real_git" -C "$work" tag -a 0.5.1 "$late_tag_target" -m 'Late release 0.5.1'
+"$real_git" -C "$work" push -q upstream refs/tags/0.5.1:refs/tags/0.5.1
+MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 200 >/dev/null
+node -e '
+  const calls = require("node:fs").readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  if (calls.some(call => call.includes("POST"))) throw new Error("late canonical tag caused a mutation")
+' "$MIRROR_GH_LOG"
 
 # One valid post-baseline tag without a Release resumes only that Release.
 activate_case recover-partial
@@ -713,6 +734,27 @@ export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=212
 MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 212 >/dev/null
 [[ -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 [[ $("$real_git" --git-dir="$origin" rev-parse "$partial_tag^{commit}") == "$old_tip" ]]
+
+# Missing-Release recovery uses publication-time body inputs from the tag even
+# after a newly discovered lower-precedence canonical tag changes current state.
+activate_case recover-body-after-late-canonical-tag
+add_new_canonical_release
+recovery_tag=obsidian-v0.7.0-1
+write_ci_run 241 "$candidate_sha"
+create_fork_tag "$recovery_tag" "$candidate_sha" \
+  "$(valid_annotation "$recovery_tag" "$candidate_sha" 241 0.7.0 obsidian-v0.6.0-rc.1-1 '[]')"
+late_tag_target=$("$real_git" --git-dir="$origin" rev-parse 'obsidian-v0.6.0-rc.1-1^{commit}')
+"$real_git" -C "$work" tag -a 0.6.1 "$late_tag_target" -m 'Late release 0.6.1'
+"$real_git" -C "$work" push -q upstream refs/tags/0.6.1:refs/tags/0.6.1
+MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240 >/dev/null
+recovered_release="$MOCK_GH_STATE/releases/obsidian-v0.7.0-1.json"
+node -e '
+  const assert = require("node:assert/strict")
+  const release = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))
+  assert.match(release.body, /Previous fork release:.*obsidian-v0\.6\.0-rc\.1-1/)
+  assert.match(release.body, /Superseded canonical tags: None/)
+  assert.doesNotMatch(release.body, /`0\.6\.1`/)
+' "$recovered_release"
 
 # Recovery is terminal for this invocation. When a newer canonical release is
 # still eligible, rediscovery leaves one actionable issue for a later hosted run.
@@ -748,6 +790,8 @@ node -e '
   assert.equal(issue.state, "open")
   assert.match(issue.body, new RegExp(`Recovered.*${partial}`))
   assert.ok(issue.body.includes(command))
+  assert.match(issue.body, /candidate must remain an ancestor of current `origin\/main`/)
+  assert.doesNotMatch(issue.body, /current tested `main`/)
   assert.doesNotMatch(issue.body, /node bin\/mirror-release\.ts publish/)
 ' "$MOCK_GH_STATE/issues-pages.json" "$candidate_sha" "$partial_tag"
 
@@ -786,9 +830,39 @@ node -e '
 [[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 [[ -z $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.7.0-*') ]]
 
-# Missing provenance and a Fork-Commit mismatch are unsafe.
+# Missing legacy provenance and a Fork-Commit mismatch are unsafe.
 activate_case invalid-provenance
 create_fork_tag "$partial_tag" "$candidate_sha" $'Obsidian Wordgard 0.6.0-rc.1 fork release 2\n\nFork-Commit: missing-fields'
+MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+
+# Immutable Release-body inputs are required exactly once and use canonical
+# compact JSON with no duplicate canonical tag identity.
+activate_case missing-body-provenance
+write_ci_run 232 "$candidate_sha"
+message=$(valid_annotation "$partial_tag" "$candidate_sha" 232 | grep -v '^Previous-Fork-Tag:')
+create_fork_tag "$partial_tag" "$candidate_sha" "$message"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+
+activate_case malformed-body-provenance
+write_ci_run 233 "$candidate_sha"
+create_fork_tag "$partial_tag" "$candidate_sha" \
+  "$(valid_annotation "$partial_tag" "$candidate_sha" 233 0.6.0-rc.1 obsidian-v0.6.0-rc.1-1 '[ ]')"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+
+activate_case duplicate-body-provenance-field
+write_ci_run 234 "$candidate_sha"
+message="$(valid_annotation "$partial_tag" "$candidate_sha" 234)"$'\nPrevious-Fork-Tag: obsidian-v0.6.0-rc.1-1'
+create_fork_tag "$partial_tag" "$candidate_sha" "$message"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+
+activate_case duplicate-superseded-provenance
+write_ci_run 235 "$candidate_sha"
+create_fork_tag "$partial_tag" "$candidate_sha" \
+  "$(valid_annotation "$partial_tag" "$candidate_sha" 235 0.6.0-rc.1 obsidian-v0.6.0-rc.1-1 '[\"0.5.0\",\"0.5.0\"]')"
 MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
 [[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 
@@ -925,9 +999,32 @@ export MOCK_COLLISION_WRONG_SHA=$base_sha
 MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 240
 [[ $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.7.0-*') == obsidian-v0.7.0-1 ]]
 
-# A real atomic push to a temporary bare origin must reject both updates when
-# main advances after discovery but before publication.
-activate_case current-main-race
+# A tested candidate that is an ancestor, but not the tip, remains eligible in
+# both dry-run and publication. The immutable tag still targets the tested SHA.
+activate_case tested-main-ancestor
+add_new_canonical_release
+tested_candidate=$candidate_sha
+printf 'ordinary main advance\n' >>"$work/history"
+"$real_git" -C "$work" commit -qam 'advance main after tested candidate'
+advanced_main=$("$real_git" -C "$work" rev-parse HEAD)
+"$real_git" -C "$work" push -q origin main
+output=$(MIRROR_TEST_DRY_RUN=1 run_mirror "$tested_candidate" 240)
+node -e '
+  const assert = require("node:assert/strict")
+  const [output, candidate] = process.argv.slice(1)
+  const plan = JSON.parse(output)
+  assert.equal(plan.candidateSha, candidate)
+  assert.deepEqual(plan.selected, {tag: "0.7.0", version: "0.7.0", commit: candidate})
+  assert.equal(plan.proposedForkTag, "obsidian-v0.7.0-1")
+' "$output" "$tested_candidate"
+MIRROR_TEST_DRY_RUN=0 run_mirror "$tested_candidate" 240 >/dev/null
+[[ $("$real_git" --git-dir="$origin" rev-parse refs/heads/main) == "$advanced_main" ]]
+[[ $("$real_git" --git-dir="$origin" rev-parse 'obsidian-v0.7.0-1^{commit}') == "$tested_candidate" ]]
+[[ -f "$MOCK_GH_STATE/releases/obsidian-v0.7.0-1.json" ]]
+
+# An ordinary concurrent fast-forward after discovery and the final ancestry
+# check does not invalidate the successful CI authorization for its ancestor.
+activate_case current-main-fast-forward-race
 add_new_canonical_release
 race_candidate=$candidate_sha
 printf 'concurrent main advance\n' >>"$work/history"
@@ -935,11 +1032,21 @@ printf 'concurrent main advance\n' >>"$work/history"
 advanced_main=$("$real_git" -C "$work" rev-parse HEAD)
 export MOCK_PUSH_ADVANCE_MAIN_SHA=$advanced_main
 export MOCK_PUSH_ADVANCE_MAIN_STATE="$tmp/current-main-race-fired"
-if MIRROR_TEST_DRY_RUN=0 run_mirror "$race_candidate" 240 >/dev/null 2>&1; then
-  echo 'expected publication to fail when main advanced before the atomic push' >&2
-  exit 1
-fi
+MIRROR_TEST_DRY_RUN=0 run_mirror "$race_candidate" 240 >/dev/null
 [[ $("$real_git" --git-dir="$origin" rev-parse refs/heads/main) == "$advanced_main" ]]
+[[ $("$real_git" --git-dir="$origin" rev-parse 'obsidian-v0.7.0-1^{commit}') == "$race_candidate" ]]
+[[ -f "$MOCK_GH_STATE/releases/obsidian-v0.7.0-1.json" ]]
+
+# A candidate outside current origin/main history fails before any local tag or
+# GitHub Release creation.
+activate_case candidate-not-ancestor
+add_new_canonical_release
+non_ancestor_candidate=$candidate_sha
+unrelated_main=$("$real_git" -C "$work" commit-tree "$("$real_git" -C "$work" write-tree)" -m 'unrelated main')
+"$real_git" -C "$work" push -q --force origin "$unrelated_main:refs/heads/main"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'candidate SHA is not an ancestor of origin/main' \
+  run_mirror "$non_ancestor_candidate" 240
+[[ -z $("$real_git" -C "$work" tag --list 'obsidian-v0.7.0-*') ]]
 [[ -z $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.7.0-*') ]]
 [[ ! -f "$MOCK_GH_STATE/releases/obsidian-v0.7.0-1.json" ]]
 
@@ -1227,6 +1334,8 @@ node -e '
   assert.match(comment.body, /Intended fork tag: `obsidian-v0\.7\.0-1`/)
   assert.match(comment.body, /Observed remote state:/)
   assert.match(comment.body, /gh workflow run mirror-release\.yml --repo obsidianmd\/wordgard --ref main -f candidate_sha=[0-9a-f]{40} -f ci_run_id=240/)
+  assert.match(comment.body, /candidate SHA must remain an ancestor of current `origin\/main`/)
+  assert.doesNotMatch(comment.body, /current tested `main`/)
   assert.doesNotMatch(comment.body, /node bin\/mirror-release\.ts publish/)
 ' "$MIRROR_GH_LOG" "$MOCK_GH_STATE/issues-pages.json" "$MOCK_GH_STATE/comments.jsonl"
 
@@ -1307,7 +1416,14 @@ printf 'stale\n' >> "$seed/history"
 "$real_git" -C "$seed" commit -qam stale
 stale_tip=$("$real_git" -C "$seed" rev-parse HEAD)
 "$real_git" -C "$seed" push -q origin main
-MOCK_CI_SHA="$candidate_sha" expect_failure 'candidate SHA is not origin/main' run_mirror
+output=$(MOCK_CI_SHA="$candidate_sha" run_mirror "$candidate_sha" 299)
+node -e '
+  const assert = require("node:assert/strict")
+  const [output, candidate] = process.argv.slice(1)
+  const plan = JSON.parse(output)
+  assert.equal(plan.candidateSha, candidate)
+  assert.equal(plan.selected, null)
+' "$output" "$candidate_sha"
 
 # Move the canonical baseline version to a disconnected history. A configured
 # baseline whose canonical release is unreachable cannot establish a watermark.
