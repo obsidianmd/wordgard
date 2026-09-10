@@ -1349,7 +1349,7 @@ node -e '
   if (issue.state !== "closed") process.exit(1)
 ' "$MOCK_GH_STATE/issues-pages.json"
 
-# A fully consistent no-candidate run also closes a stale exact-title issue.
+# A fully consistent current-tip no-candidate run also closes a stale exact-title issue.
 activate_case close-on-noop
 node -e '
   const fs = require("node:fs")
@@ -1361,6 +1361,29 @@ node -e '
   const issue = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))[0][0]
   if (issue.state !== "closed") process.exit(1)
 ' "$MOCK_GH_STATE/issues-pages.json"
+
+# A delayed successful ancestor run cannot establish that the current-tip
+# failure is resolved, even when the ancestor has no eligible candidate.
+activate_case keep-current-tip-failure-open-after-ancestor-noop
+ancestor_sha=$candidate_sha
+add_new_canonical_release
+current_tip=$candidate_sha
+node -e '
+  const fs = require("node:fs")
+  const candidate = process.argv[2]
+  fs.writeFileSync(process.argv[1], JSON.stringify([[{number: 56, state: "open",
+    title: "Upstream release mirroring requires attention", pull_request: null,
+    body: `Candidate SHA: \`${candidate}\``}]]))
+' "$MOCK_GH_STATE/issues-pages.json" "$current_tip"
+MOCK_CI_SHA="$ancestor_sha" MOCK_CI_ID=200 \
+  MIRROR_TEST_DRY_RUN=0 run_mirror "$ancestor_sha" 200 >/dev/null
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const issue = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[0][0]
+  const calls = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(issue.state, "open")
+  assert(!calls.some(call => call.includes("PATCH") && call.some(arg => /\/issues\/56$/.test(arg))))
+' "$MOCK_GH_STATE/issues-pages.json" "$MIRROR_GH_LOG"
 
 # Temporary-file cleanup cannot replace an active API failure.
 activate_case cleanup-error-precedence

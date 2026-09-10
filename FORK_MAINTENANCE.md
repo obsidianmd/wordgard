@@ -45,7 +45,7 @@ Never force-push `main` and never commit unresolved conflict markers.
 
 ## Automatic fork releases
 
-Canonical Git tags are the sole upstream release signal. Every valid SemVer tag whose commit is reachable from the exact CI-tested candidate is eligible, including all prereleases. After a push to `main`, `CI / Test` from `.github/workflows/ci.yml` must complete successfully for that candidate SHA. At discovery and again immediately before tag push, the controller fetches `origin/main` and requires the candidate to be its ancestor; equality is not required. Protected `main` prohibits force-push and deletion, so an ordinary concurrent advance preserves that ancestry. The `Mirror upstream release` workflow then selects only the highest eligible SemVer newer than the completed release watermark. Lower eligible versions are recorded as superseded rather than published separately.
+Canonical Git tags are the sole upstream release signal. Every valid SemVer tag whose commit is reachable from the exact CI-tested candidate is eligible, including all prereleases. After a push to `main`, `CI / Test` from `.github/workflows/ci.yml` must complete successfully for that candidate SHA. At discovery and again immediately before tag push, the controller fetches `origin/main` and requires the candidate to be its ancestor; equality is not required. Protected `main` prohibits force-push and deletion without bypass for administrators, repository roles, or GitHub Apps, so an ordinary concurrent advance preserves that ancestry. The `Mirror upstream release` workflow then selects only the highest eligible SemVer newer than the completed release watermark. Lower eligible versions are recorded as superseded rather than published separately.
 
 `obsidian-v0.3.1-2` is the tag-only historical baseline. It establishes the watermark and is not backfilled with a GitHub Release. For each newly selected canonical release, the workflow publishes an immutable annotated tag named `obsidian-v<upstream-version>-<fork-release>` on the exact CI-tested candidate, then creates the corresponding GitHub Release. The publication push contains only that full tag refspec: it does not force, delete, update `main`, or use a branch lease/atomic no-op guard. The suffix is one greater than the maximum existing origin suffix for that upstream version; local-only tags do not affect naming. Existing tags are never moved, overwritten, or reused; an inconsistent tag or collision stops publication instead of rewriting remote state.
 
@@ -53,7 +53,7 @@ Every GitHub Release is non-draft. A stable canonical version sets the prereleas
 
 Publication failures create or update one deduplicated issue titled **Upstream release mirroring requires attention**. After correcting the reported state, a maintainer recovers idempotently through the hosted workflow. Dispatch inputs must identify an exact candidate SHA from a successful push-to-`main` CI run and its corresponding run ID. The controller requires the GitHub workflow-run API path to be exactly `.github/workflows/ci.yml@main` (workflow path plus ref), requires the run to be successful and push-triggered on `main`, verifies that its head SHA matches the candidate, and verifies that the candidate remains an ancestor of current `origin/main`.
 
-If an annotated tag was published before GitHub Release creation failed, recovery separately revalidates the original authorization and Release-body inputs recorded in that immutable tag's annotation and creates only the missing exact Release. Recovery remains terminal for that invocation. If rediscovery finds a newer candidate reachable from the supplied CI-tested SHA, the issue stays open with the exact hosted follow-up command; a later invocation publishes that candidate and then closes the issue.
+If an annotated tag was published before GitHub Release creation failed, recovery separately revalidates the original authorization and Release-body inputs recorded in that immutable tag's annotation and creates only the missing exact Release. Recovery remains terminal for that invocation. If rediscovery finds a newer candidate reachable from the supplied CI-tested SHA, the issue stays open with the exact hosted follow-up command. A successful invocation closes the issue only when its candidate equals the fetched current `origin/main` after full reconciliation; a delayed ancestor invocation never closes an issue that may report an unresolved current-tip failure.
 
 The following is a maintainer-run hosted recovery example. Local repository preparation must not run it:
 
@@ -86,7 +86,7 @@ GitHub Actions must be allowed to create pull requests. Keep the repository's de
 - `Sync upstream`: `actions: write`, `contents: write`, `pull-requests: write`, and `issues: write`;
 - `Mirror upstream release`: `actions: read`, `contents: write`, and `issues: write`.
 
-Protect `main` by requiring a pull request, one approval, and the strict `CI / Test` status check, and prohibit force-push and deletion. Keep push-triggered `CI` from `.github/workflows/ci.yml` enabled on `main`; release publication accepts only a successful push-triggered run of that exact workflow for the candidate commit and requires that candidate to remain an ancestor of current `origin/main`. Enable merge commits and disable squash and rebase merging so patch commits and trailers survive.
+Protect `main` by requiring a pull request, one approval, and the strict `CI / Test` status check, and prohibit force-push and deletion without bypass. Enforce the protection for administrators, and do not grant any repository role or GitHub App permission to bypass branch protections. If such a bypass grant must exist for unrelated rules, add an active ruleset targeting `refs/heads/main` with `deletion` and `non_fast_forward` rules and an empty bypass-actor list. Keep push-triggered `CI` from `.github/workflows/ci.yml` enabled on `main`; release publication accepts only a successful push-triggered run of that exact workflow for the candidate commit and requires that candidate to remain an ancestor of current `origin/main`. Enable merge commits and disable squash and rebase merging so patch commits and trailers survive.
 
 Add tag rules for `obsidian-v*` that prevent tag updates and deletion while allowing GitHub Actions to create new matching tags. Do not grant the release workflow permission to bypass update or deletion protection.
 
@@ -96,7 +96,7 @@ The repository preparation process leaves all work local. A maintainer performs 
 
 1. Against the existing remote `main`, keep default workflow permissions read-only, allow `GITHUB_TOKEN` workflows to create pull requests, and confirm the explicit sync and release workflow permissions listed above are permitted.
 2. Enable merge commits, disable squash/rebase merging, and enable merged-branch deletion.
-3. Protect the existing remote `main` with one approval, strict `CI / Test`, conversation resolution, and no force-pushes or deletion.
+3. Protect the existing remote `main` with one approval, strict `CI / Test`, conversation resolution, and no force-pushes or deletion; enforce those rules for administrators and verify that no repository role or GitHub App can bypass them.
 4. Configure `obsidian-v*` tag rules to block update and deletion while allowing workflow tag creation. Complete this before release automation can reach `main`.
 5. Push the existing synchronization work only to its topic branch, then merge its reviewed synchronization PR after `CI / Test` passes.
 6. Keep the WG-001/WG-002 absorbed-state ledger update as its own commit. Push the release-automation work only to a separate topic branch based on the newly synchronized `main`, then merge that reviewed PR after `CI / Test` passes.
@@ -127,7 +127,7 @@ After `CI / Test` exists on the current remote, apply branch protection with thi
     "strict": true,
     "contexts": ["CI / Test"]
   },
-  "enforce_admins": false,
+  "enforce_admins": true,
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": true,
     "require_code_owner_reviews": false,
@@ -152,7 +152,9 @@ gh api --method PUT repos/obsidianmd/wordgard/branches/main/protection \
   --input /tmp/wordgard-branch-protection.json
 ```
 
-Configure the `obsidian-v*` tag rules next. The exact ruleset API payload depends on the repository's ruleset and bypass-actor configuration; review it before applying it as a maintainer. Only after both branch and tag protections exist should maintainers push the synchronization and release-automation topic branches, open or update their PRs, and merge them in that order. After rollout, the maintainer may run:
+The payload applies classic branch protection to administrators, but the release guarantee also requires that repository roles and GitHub Apps cannot bypass the force-push or deletion rules. Before rollout, inspect all repository and organization role assignments and installed Apps for branch-protection bypass. Remove every such grant, or add an active ruleset targeting `refs/heads/main` with `deletion` and `non_fast_forward` rules and an empty `bypass_actors` list. Evaluate-mode rulesets and bypass entries do not satisfy this requirement.
+
+Configure the `obsidian-v*` tag rules next. The exact ruleset API payload depends on the repository's ruleset and bypass-actor configuration; review it before applying it as a maintainer. Only after the no-bypass `main` policy and tag protections exist should maintainers push the synchronization and release-automation topic branches, open or update their PRs, and merge them in that order. After rollout, the maintainer may run:
 
 ```sh
 gh workflow run sync-upstream.yml --repo obsidianmd/wordgard

@@ -92,6 +92,7 @@ type PublicationOutcome = {
 }
 
 type Discovery = {
+  originMain: string
   ciRun: CiRun
   forkTags: readonly ForkReleaseTag[]
   selection: ReleaseSelection
@@ -429,7 +430,7 @@ function discoverRepositoryState(
       completedReleaseTags,
       baselineTag,
     })
-    return {ciRun, forkTags, selection, recovery: {tag, performed}}
+    return {originMain, ciRun, forkTags, selection, recovery: {tag, performed}}
   }
 
   let selection = selectRelease({
@@ -439,7 +440,7 @@ function discoverRepositoryState(
     completedReleaseTags,
     baselineTag,
   })
-  return {ciRun, forkTags, selection, recovery: null}
+  return {originMain, ciRun, forkTags, selection, recovery: null}
 }
 
 function validateRelease(release: GitHubRelease, expected: GitHubReleaseInput): void {
@@ -717,6 +718,7 @@ function publish(): Discovery {
   createReleaseForTag(publishedTag, selected, previous.tag, supersededTags)
   failureContext.observedRemoteState = `${forkTag}: tag and GitHub Release complete`
   return {
+    originMain: refreshed.originMain,
     ciRun: refreshed.ciRun,
     forkTags: [...refreshed.forkTags, publishedTag],
     selection: {
@@ -930,7 +932,7 @@ try {
     discovery = publish()
     if (discovery.recovery?.performed && discovery.selection.selected)
       leaveRecoveryFollowUpIssueOpen(discovery)
-    else
+    else if (discovery.originMain == cliInputs.candidateSha)
       closeFailureIssue()
   }
   process.stdout.write(`${JSON.stringify(buildPlan(discovery))}\n`)
