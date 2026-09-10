@@ -122,6 +122,12 @@ describe("release versions", () => {
     assert.equal(forkTagName(version, 4n), "obsidian-v1.2.0-4")
   })
 
+  it("rejects non-positive fork tag suffixes", () => {
+    let version = parseSemVerTag("1.2.0")!
+    assert.throws(() => forkTagName(version, 0n), /suffix must be positive/)
+    assert.throws(() => forkTagName(version, -1n), /suffix must be positive/)
+  })
+
   it("fails when the configured baseline is missing", () => {
     assert.throws(() => selectRelease({
       canonical: [],

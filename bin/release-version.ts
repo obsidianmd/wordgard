@@ -97,6 +97,7 @@ export function nextForkSuffix(version: SemVer, forkTags: readonly ForkReleaseTa
 }
 
 export function forkTagName(version: SemVer, suffix: bigint): string {
+  if (suffix <= 0n) throw new Error("fork tag suffix must be positive")
   return `obsidian-v${version.normalized}-${suffix}`
 }
 
