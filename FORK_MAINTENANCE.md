@@ -43,48 +43,64 @@ gh pr create --base main --head sync-upstream-manual
 
 Never force-push `main` and never commit unresolved conflict markers.
 
-## Fork releases
+## Automatic fork releases
 
-After merging and testing a release candidate:
+Canonical Git tags are the sole upstream release signal. Every valid SemVer tag is eligible, including all prereleases. After a push to `main`, `CI / Test` must complete successfully for that exact current `origin/main` commit. The `Mirror upstream release` workflow then selects only the highest eligible SemVer newer than the completed release watermark. Lower eligible versions are recorded as superseded rather than published separately.
 
-```sh
-git switch main
-git pull --ff-only origin main
-git tag -a obsidian-v0.3.1-1 -m "Obsidian Wordgard 0.3.1 fork release 1"
-git push origin obsidian-v0.3.1-1
+`obsidian-v0.3.1-2` is the tag-only historical baseline. It establishes the watermark and is not backfilled with a GitHub Release. For each newly selected canonical release, the workflow publishes an immutable annotated tag named `obsidian-v<upstream-version>-<fork-release>` on the validated `main` commit, then creates the corresponding GitHub Release. The suffix is one greater than the maximum existing suffix for that upstream version. Existing tags are never moved, overwritten, or reused; an inconsistent tag or collision stops publication instead of rewriting remote state.
+
+Every GitHub Release is non-draft. A stable canonical version sets the prerelease flag to false; a SemVer prerelease sets it to true. Generated notes identify the canonical tag and commit, the fork commit, any superseded canonical tags, and a permalink to `FORK_PATCHES.md` at the immutable fork tag. The notes do not infer patch statuses: the ledger remains authoritative.
+
+Publication failures create or update one deduplicated issue titled **Upstream release mirroring requires attention**. After correcting the reported state, a maintainer can recover idempotently with the same candidate SHA and successful CI run ID. The controller validates that the run was a successful push-triggered `CI` run on `main`, that its head SHA matches the candidate, and that the candidate is still current `origin/main`. If an annotated tag was published before GitHub Release creation failed, recovery validates its provenance and creates only the missing Release.
+
+The following is a maintainer-run hosted recovery example. Local repository preparation must not run it:
+
+```bash
+gh workflow run mirror-release.yml --repo obsidianmd/wordgard \
+  -f candidate_sha='<40-character-main-commit>' \
+  -f ci_run_id='<successful-main-ci-run-id>'
 ```
 
-Use `obsidian-v<upstream-version>-<fork-release>`. Increment the final number for another release based on the same upstream package version. Never move or reuse a published tag.
+Release mirroring does not publish npm packages or release assets and does not update Opal or Link. Consumer dependency bumps remain separate reviewed changes.
 
 ## Opal and Link dependencies
 
-Pin an immutable tag in each consumer's `package.json` and commit the resulting lockfile. Use the GitHub SSH form when development environments have GitHub SSH access:
+Pin an immutable fork tag in each consumer's `package.json` and commit the resulting lockfile. Use the GitHub SSH form when development environments have GitHub SSH access:
 
 ```json
-"wordgard": "git+ssh://git@github.com/obsidianmd/wordgard.git#obsidian-v0.3.1-1"
+"wordgard": "git+ssh://git@github.com/obsidianmd/wordgard.git#obsidian-v<upstream-version>-<fork-release>"
 ```
 
 Use the HTTPS form where SSH is unavailable:
 
 ```json
-"wordgard": "git+https://github.com/obsidianmd/wordgard.git#obsidian-v0.3.1-1"
+"wordgard": "git+https://github.com/obsidianmd/wordgard.git#obsidian-v<upstream-version>-<fork-release>"
 ```
 
 ## Repository settings
 
-GitHub Actions must be allowed to create pull requests. Protect `main` by requiring a pull request, one approval, and the `CI / Test` status check. Enable merge commits and disable squash and rebase merging so patch commits and trailers survive.
+GitHub Actions must be allowed to create pull requests. Keep the repository's default `GITHUB_TOKEN` permission read-only, then permit the workflows' explicit job-level grants:
+
+- `Sync upstream`: `actions: write`, `contents: write`, `pull-requests: write`, and `issues: write`;
+- `Mirror upstream release`: `actions: read`, `contents: write`, and `issues: write`.
+
+Protect `main` by requiring a pull request, one approval, and the strict `CI / Test` status check. Keep push-triggered `CI` enabled on `main`; release publication accepts only a successful push-triggered run for the exact current `main` commit. Enable merge commits and disable squash and rebase merging so patch commits and trailers survive.
+
+Add tag rules for `obsidian-v*` that prevent tag updates and deletion while allowing GitHub Actions to create new matching tags. Do not grant the release workflow permission to bypass update or deletion protection.
 
 ## Initial publication handoff
 
-The repository preparation process leaves all work local. A maintainer performs publication only after reviewing the local history and verification evidence:
+The repository preparation process leaves all work local. A maintainer performs hosted rollout only after reviewing the local history and verification evidence:
 
 1. Push local `main` and set it to track `origin/main`.
-2. Allow `GITHUB_TOKEN` workflows to create pull requests.
+2. Keep default workflow permissions read-only and allow `GITHUB_TOKEN` workflows to create pull requests; confirm the explicit sync and release workflow permissions listed above are permitted.
 3. Enable merge commits, disable squash/rebase merging, and enable merged-branch deletion.
-4. Manually run `CI` and confirm `CI / Test` passes.
+4. Confirm a push to `main` runs `CI` and that `CI / Test` passes.
 5. Protect `main` with one approval, strict `CI / Test`, conversation resolution, and no force-pushes or deletion.
-6. Manually run `Sync upstream` and confirm the expected no-change result or review its PR/issue.
-7. Create and push `obsidian-v0.3.1-1` only after every check passes; never move it afterward.
+6. Configure `obsidian-v*` tag rules to block update and deletion while allowing workflow tag creation.
+7. Manually run `Sync upstream` and confirm the expected no-change result or review its PR/issue.
+8. Validate hosted release mirroring: with `obsidian-v0.3.1-2` present as the baseline and no newer eligible canonical tag, a successful current-`main` push CI run must produce no backfill Release or replacement tag.
+9. Make any Opal or Link dependency bump as a separate reviewed change after the desired immutable fork tag exists.
 
 These maintainer-only commands must not be executed by automated local preparation:
 
@@ -100,8 +116,6 @@ gh api --method PATCH repos/obsidianmd/wordgard \
   -F allow_squash_merge=false \
   -F allow_rebase_merge=false \
   -F delete_branch_on_merge=true
-
-gh workflow run ci.yml --repo obsidianmd/wordgard
 ```
 
 After `CI / Test` exists, apply branch protection with this payload:
@@ -137,7 +151,6 @@ gh api --method PUT repos/obsidianmd/wordgard/branches/main/protection \
   --input /tmp/wordgard-branch-protection.json
 
 gh workflow run sync-upstream.yml --repo obsidianmd/wordgard
-
-git tag -a obsidian-v0.3.1-1 -m "Obsidian Wordgard 0.3.1 fork release 1"
-git push origin obsidian-v0.3.1-1
 ```
+
+Configure the `obsidian-v*` tag rules in the hosted repository before relying on automatic release publication. The exact ruleset API payload depends on the repository's ruleset and bypass-actor configuration; review it before applying it as a maintainer.
