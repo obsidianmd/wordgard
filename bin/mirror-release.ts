@@ -37,7 +37,13 @@ type GitHubIssue = {
   number: number
   state: "open" | "closed"
   title: string
+  body?: string
   pull_request?: unknown
+}
+
+type GitHubIssueComment = {
+  id: number
+  body: string
 }
 
 type FailureContext = {
@@ -51,6 +57,15 @@ const issueTitle = "Upstream release mirroring requires attention"
 const transientStatuses = new Set([500, 502, 503, 504])
 const githubAttempts = 3
 
+class GitHubRequestError extends Error {
+  readonly status: number | null
+
+  constructor(message: string, status: number | null) {
+    super(message)
+    this.status = status
+  }
+}
+
 let failureContext: FailureContext = {}
 
 type TagProvenance = {
@@ -61,10 +76,16 @@ type TagProvenance = {
   ciRunUrl: string
 }
 
+type RecoveryOutcome = {
+  tag: ForkReleaseTag
+  performed: boolean
+}
+
 type Discovery = {
   ciRun: CiRun
   forkTags: readonly ForkReleaseTag[]
   selection: ReleaseSelection
+  recovery: RecoveryOutcome | null
 }
 
 type DiscoveryOptions = {
@@ -100,26 +121,39 @@ function waitBeforeRetry(): void {
   if (milliseconds) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 }
 
+function githubRequestOnce(
+  args: readonly string[],
+  endpoint: string,
+  allowedStatuses: ReadonlySet<number> = new Set(),
+): {output: string, status: number} {
+  let result = spawnSync("gh", args, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  if (result.error) throw result.error
+  if (result.status == 0) return {output: result.stdout.trim(), status: 200}
+  let statusMatch = /\bHTTP ([0-9]{3})\b/.exec(result.stderr)
+  let status = statusMatch ? Number(statusMatch[1]) : null
+  if (status != null && allowedStatuses.has(status))
+    return {output: result.stdout.trim(), status}
+  let message = `GitHub API request failed for ${endpoint}${result.stderr ? `: ${result.stderr.trim()}` : ""}`
+  throw new GitHubRequestError(message, status)
+}
+
 function githubRequest(
   args: readonly string[],
   endpoint: string,
   allowedStatuses: ReadonlySet<number> = new Set(),
 ): {output: string, status: number} {
   for (let attempt = 1; attempt <= githubAttempts; attempt++) {
-    let result = spawnSync("gh", args, {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-    })
-    if (result.error) throw result.error
-    if (result.status == 0) return {output: result.stdout.trim(), status: 200}
-    let statusMatch = /\bHTTP ([0-9]{3})\b/.exec(result.stderr)
-    let status = statusMatch ? Number(statusMatch[1]) : null
-    if (status != null && allowedStatuses.has(status))
-      return {output: result.stdout.trim(), status}
-    let message = `GitHub API request failed for ${endpoint}${result.stderr ? `: ${result.stderr.trim()}` : ""}`
-    if (status == null || !transientStatuses.has(status) || attempt == githubAttempts)
-      throw new Error(message)
-    waitBeforeRetry()
+    try {
+      return githubRequestOnce(args, endpoint, allowedStatuses)
+    } catch (error) {
+      if (!(error instanceof GitHubRequestError) || error.status == null ||
+          !transientStatuses.has(error.status) || attempt == githubAttempts)
+        throw error
+      waitBeforeRetry()
+    }
   }
   throw new Error("unreachable GitHub retry state")
 }
@@ -135,21 +169,75 @@ function lookupRelease(tag: string): GitHubRelease | null {
   return response.status == 404 ? null : parseJson<GitHubRelease>(response.output, endpoint)
 }
 
-function githubMutation<T>(method: "POST" | "PATCH", endpoint: string, body: object): T {
-  let directory = mkdtempSync(join(tmpdir(), "wordgard-github-"))
-  let input = join(directory, "input.json")
+function cleanupTemporaryDirectory(directory: string, operationFailed: boolean): void {
   try {
-    writeFileSync(input, JSON.stringify(body))
-    let response = githubRequest(["api", "--method", method, endpoint, "--input", input], endpoint)
-    return parseJson<T>(response.output, endpoint)
-  } finally {
     rmSync(directory, {recursive: true, force: true})
+  } catch (error) {
+    if (!operationFailed) throw error
   }
 }
 
-function createRelease(release: Omit<GitHubRelease, "id">): GitHubRelease {
+function githubMutation<T>(method: "POST" | "PATCH", endpoint: string, body: object): T {
+  let directory = mkdtempSync(join(tmpdir(), "wordgard-github-"))
+  let input = join(directory, "input.json")
+  let operationFailed = true
+  try {
+    writeFileSync(input, JSON.stringify(body))
+    let response = githubRequestOnce(
+      ["api", "--method", method, endpoint, "--input", input],
+      endpoint,
+    )
+    let parsed = parseJson<T>(response.output, endpoint)
+    operationFailed = false
+    return parsed
+  } finally {
+    cleanupTemporaryDirectory(directory, operationFailed)
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function reconciledMutation<T>(
+  method: "POST" | "PATCH",
+  endpoint: string,
+  body: object,
+  reconcile: () => T | null,
+): T {
+  for (let attempt = 1; attempt <= githubAttempts; attempt++) {
+    try {
+      return githubMutation<T>(method, endpoint, body)
+    } catch (error) {
+      let reconciled: T | null
+      try {
+        reconciled = reconcile()
+      } catch (reconciliationError) {
+        throw new Error(
+          `${errorMessage(error)}; mutation reconciliation also failed: ${errorMessage(reconciliationError)}`,
+          {cause: error},
+        )
+      }
+      if (reconciled != null) return reconciled
+      if (!(error instanceof GitHubRequestError) || error.status == null ||
+          !transientStatuses.has(error.status) || attempt == githubAttempts)
+        throw error
+      waitBeforeRetry()
+    }
+  }
+  throw new Error("unreachable GitHub mutation retry state")
+}
+
+function createRelease(
+  release: Omit<GitHubRelease, "id">,
+  tag: ForkReleaseTag,
+): GitHubRelease {
   let endpoint = `repos/${requireEnvironment("GITHUB_REPOSITORY")}/releases`
-  return githubMutation<GitHubRelease>("POST", endpoint, release)
+  return reconciledMutation<GitHubRelease>("POST", endpoint, release, () => {
+    let existing = lookupRelease(tag.tag)
+    if (existing) validateRelease(existing, tag)
+    return existing
+  })
 }
 
 function validateCiRun(ciRun: CiRun, candidateSha: string, expectedRunId = cliInputs.ciRunId): void {
@@ -250,14 +338,24 @@ function discoverRepositoryState(
   validateCiRun(ciRun, candidateSha)
   failureContext.ciRunUrl = ciRun.html_url
 
+  let reachableCanonicalTags = new Set<string>()
+  for (let release of canonical)
+    if (isAncestor(release.commit, candidateSha)) reachableCanonicalTags.add(release.tag)
+
+  let baselineCanonical = canonical.filter(release =>
+    release.version.normalized == baseline.version.normalized)
+  if (!baselineCanonical.some(release => reachableCanonicalTags.has(release.tag)))
+    throw new Error("canonical baseline tag is not reachable from candidate")
+
   let completedReleaseTags = new Set<string>()
-  let incomplete: ForkReleaseTag[] = []
+  let incomplete: {tag: ForkReleaseTag, provenance: TagProvenance}[] = []
   let observedState: string[] = []
   for (let tag of forkTags) {
     if (compareSemVer(tag.version, baseline.version) <= 0) continue
+    let provenance = validateTagProvenance(tag, originTags.get(tag.tag)!, canonical, originMain)
     let release = lookupRelease(tag.tag)
     if (!release) {
-      incomplete.push(tag)
+      incomplete.push({tag, provenance})
       observedState.push(`${tag.tag}: tag exists, GitHub Release missing`)
       continue
     }
@@ -268,11 +366,11 @@ function discoverRepositoryState(
   failureContext.observedRemoteState = observedState.length ? observedState.sort().join("; ") :
     "no post-baseline fork tags"
   if (incomplete.length > 1)
-    throw new Error(`multiple incomplete post-baseline tags: ${incomplete.map(tag => tag.tag).sort().join(", ")}`)
+    throw new Error(`multiple incomplete post-baseline tags: ${incomplete.map(entry => entry.tag.tag).sort().join(", ")}`)
   if (incomplete.length) {
-    let tag = incomplete[0]
-    let provenance = validateIncompleteTag(tag, originTags.get(tag.tag)!, canonical, originMain)
-    if (options.createMissingRelease) {
+    let {tag, provenance} = incomplete[0]
+    let performed = Boolean(options.createMissingRelease)
+    if (performed) {
       let previous = previousForkTag(baseline, forkTags, completedReleaseTags, tag)
       let canonicalRelease = canonical.find(release => release.tag == provenance.upstreamTag)!
       let superseded = canonical.filter(release =>
@@ -282,16 +380,15 @@ function discoverRepositoryState(
       createReleaseForTag(tag, canonicalRelease, previous.tag, superseded)
       completedReleaseTags.add(tag.tag)
     }
+    let selection = selectRelease({
+      canonical,
+      reachableCanonicalTags: new Set(),
+      forkTags,
+      completedReleaseTags,
+      baselineTag,
+    })
+    return {ciRun, forkTags, selection, recovery: {tag, performed}}
   }
-
-  let reachableCanonicalTags = new Set<string>()
-  for (let release of canonical)
-    if (isAncestor(release.commit, candidateSha)) reachableCanonicalTags.add(release.tag)
-
-  let baselineCanonical = canonical.filter(release =>
-    release.version.normalized == baseline.version.normalized)
-  if (!baselineCanonical.some(release => reachableCanonicalTags.has(release.tag)))
-    throw new Error("canonical baseline tag is not reachable from candidate")
 
   let selection = selectRelease({
     canonical,
@@ -300,7 +397,7 @@ function discoverRepositoryState(
     completedReleaseTags,
     baselineTag,
   })
-  return {ciRun, forkTags, selection}
+  return {ciRun, forkTags, selection, recovery: null}
 }
 
 function validateRelease(release: GitHubRelease, tag: ForkReleaseTag): void {
@@ -313,7 +410,10 @@ function validateRelease(release: GitHubRelease, tag: ForkReleaseTag): void {
 function parseTagProvenance(object: string, tag: ForkReleaseTag): TagProvenance {
   let raw = run("git", ["cat-file", "-p", object])
   let separator = raw.indexOf("\n\n")
-  if (separator < 0 || !raw.startsWith("object ")) throw new Error(`invalid provenance for ${tag.tag}`)
+  let tagObject = /^object ([0-9a-fA-F]{40})\ntype commit\ntag ([^\n]+)\n/.exec(raw)
+  if (separator < 0 || !tagObject || tagObject[1].toLowerCase() != tag.commit ||
+      tagObject[2] != tag.tag)
+    throw new Error(`invalid provenance for ${tag.tag}`)
   let message = raw.slice(separator + 2)
   let expectedTitle = releaseTitle(tag.version.normalized, tag.suffix)
   if (message.split("\n", 1)[0] != expectedTitle) throw new Error(`invalid provenance for ${tag.tag}`)
@@ -338,7 +438,7 @@ function parseTagProvenance(object: string, tag: ForkReleaseTag): TagProvenance 
   }
 }
 
-function validateIncompleteTag(
+function validateTagProvenance(
   tag: ForkReleaseTag,
   object: string,
   canonical: readonly CanonicalRelease[],
@@ -351,6 +451,8 @@ function validateIncompleteTag(
   if (!upstream || upstream.version.normalized != tag.version.normalized ||
       upstream.commit != provenance.upstreamCommit)
     throw new Error(`invalid provenance for ${tag.tag}`)
+  if (!isAncestor(upstream.commit, tag.commit))
+    throw new Error(`canonical upstream commit is not an ancestor of tag target: ${tag.tag}`)
   let ciRun = githubJson<CiRun>(
     `repos/${requireEnvironment("GITHUB_REPOSITORY")}/actions/runs/${provenance.ciRunId}`,
   )
@@ -416,7 +518,7 @@ function createReleaseForTag(
     draft: false,
     prerelease: Boolean(tag.version.prerelease.length),
     body: releaseNotes(canonical, tag.tag, tag.commit, previousTag, superseded),
-  })
+  }, tag)
   validateRelease(release, tag)
   return release
 }
@@ -425,6 +527,7 @@ function publish(): Discovery {
   let refreshed = discoverRepositoryState(cliInputs.baselineTag, cliInputs.candidateSha, {
     createMissingRelease: true,
   })
+  if (refreshed.recovery) return refreshed
   let selected = refreshed.selection.selected
   if (!selected || refreshed.selection.nextSuffix == null) return refreshed
 
@@ -445,11 +548,13 @@ function publish(): Discovery {
   ].join("\n")
   let directory = mkdtempSync(join(tmpdir(), "wordgard-tag-"))
   let messageFile = join(directory, "message")
+  let tagCreationFailed = true
   try {
     writeFileSync(messageFile, annotation)
     run("git", ["tag", "-a", forkTag, cliInputs.candidateSha, "-F", messageFile])
+    tagCreationFailed = false
   } finally {
-    rmSync(directory, {recursive: true, force: true})
+    cleanupTemporaryDirectory(directory, tagCreationFailed)
   }
 
   let pushFailed = false
@@ -503,6 +608,11 @@ function buildPlan(discovery: Discovery): object {
     candidateSha: cliInputs.candidateSha,
     ciRun: {id: discovery.ciRun.id, url: discovery.ciRun.html_url},
     watermark: discovery.selection.watermark.normalized,
+    ...(discovery.recovery ? {recovery: {
+      forkTag: discovery.recovery.tag.tag,
+      action: "create-missing-release",
+      performed: discovery.recovery.performed,
+    }} : {}),
     selected: selected ? {
       tag: selected.tag,
       version: selected.version.normalized,
@@ -553,24 +663,64 @@ function failureIssueBody(error: unknown): string {
   ].join("\n")
 }
 
+function createFailureIssue(repository: string, body: string): GitHubIssue {
+  let endpoint = `repos/${repository}/issues`
+  return reconciledMutation<GitHubIssue>("POST", endpoint, {title: issueTitle, body}, findFailureIssue)
+}
+
+function setFailureIssueState(
+  repository: string,
+  issueNumber: number,
+  state: "open" | "closed",
+): GitHubIssue {
+  let endpoint = `repos/${repository}/issues/${issueNumber}`
+  return reconciledMutation<GitHubIssue>("PATCH", endpoint, {state}, () => {
+    let issue = findFailureIssue()
+    return issue?.number == issueNumber && issue.state == state ? issue : null
+  })
+}
+
+function findFailureIssueComment(
+  repository: string,
+  issueNumber: number,
+  body: string,
+): GitHubIssueComment | null {
+  let endpoint = `repos/${repository}/issues/${issueNumber}/comments?per_page=100`
+  let response = githubRequest(["api", "--paginate", "--slurp", endpoint], endpoint)
+  let pages = parseJson<unknown>(response.output, endpoint)
+  if (!Array.isArray(pages) || !pages.every(Array.isArray))
+    throw new Error(`GitHub returned invalid comment pages for ${endpoint}`)
+  for (let page of pages) for (let value of page) {
+    if (!value || typeof value != "object") continue
+    let comment = value as Partial<GitHubIssueComment>
+    if (comment.body == body && typeof comment.id == "number") return comment as GitHubIssueComment
+  }
+  return null
+}
+
+function commentOnFailureIssue(repository: string, issueNumber: number, body: string): void {
+  if (findFailureIssueComment(repository, issueNumber, body)) return
+  let endpoint = `repos/${repository}/issues/${issueNumber}/comments`
+  reconciledMutation<GitHubIssueComment>("POST", endpoint, {body}, () =>
+    findFailureIssueComment(repository, issueNumber, body))
+}
+
 function reportFailure(error: unknown): void {
   let body = failureIssueBody(error)
   let repository = requireEnvironment("GITHUB_REPOSITORY")
   let issue = findFailureIssue()
   if (!issue) {
-    githubMutation<GitHubIssue>("POST", `repos/${repository}/issues`, {title: issueTitle, body})
-    return
+    issue = createFailureIssue(repository, body)
+    if (issue.body == body) return
   }
-  if (issue.state == "closed")
-    githubMutation<GitHubIssue>("PATCH", `repos/${repository}/issues/${issue.number}`, {state: "open"})
-  githubMutation<{id: number}>("POST", `repos/${repository}/issues/${issue.number}/comments`, {body})
+  if (issue.state == "closed") issue = setFailureIssueState(repository, issue.number, "open")
+  commentOnFailureIssue(repository, issue.number, body)
 }
 
 function closeFailureIssue(): void {
   let issue = findFailureIssue()
   if (issue?.state == "open")
-    githubMutation<GitHubIssue>("PATCH",
-      `repos/${requireEnvironment("GITHUB_REPOSITORY")}/issues/${issue.number}`, {state: "closed"})
+    setFailureIssueState(requireEnvironment("GITHUB_REPOSITORY"), issue.number, "closed")
 }
 
 function requireEnvironment(name: string): string {

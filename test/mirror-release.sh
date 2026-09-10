@@ -144,6 +144,21 @@ const input = inputIndex < 0 ? null : JSON.parse(fs.readFileSync(args[inputIndex
 const issuesFile = path.join(process.env.MOCK_GH_STATE, "issues-pages.json")
 const loadIssues = () => fs.existsSync(issuesFile) ? JSON.parse(fs.readFileSync(issuesFile, "utf8")) : [[]]
 const saveIssues = pages => fs.writeFileSync(issuesFile, JSON.stringify(pages))
+const commitFailurePattern = process.env.MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN
+const finishMutation = value => {
+  if (commitFailurePattern && new RegExp(commitFailurePattern).test(`${method} ${endpoint}`)) {
+    const counterFile = path.join(process.env.MOCK_GH_STATE, "commit-failure-counter")
+    const attempt = fs.existsSync(counterFile) ? Number(fs.readFileSync(counterFile, "utf8")) : 0
+    const statuses = (process.env.MOCK_COMMIT_THEN_FAIL_STATUSES || "").split(",").filter(Boolean).map(Number)
+    fs.writeFileSync(counterFile, String(attempt + 1))
+    if (attempt < statuses.length) {
+      process.stderr.write(`gh: injected post-commit failure (HTTP ${statuses[attempt]})\n`)
+      process.exit(1)
+    }
+  }
+  process.stdout.write(JSON.stringify(value))
+  process.exit(0)
+}
 const issueListMatch = /^repos\/[^/]+\/[^/]+\/issues\?state=(all|open|closed)&per_page=100$/.exec(endpoint || "")
 if (method === "GET" && issueListMatch) {
   const state = issueListMatch[1]
@@ -158,23 +173,31 @@ if (method === "PATCH" && issueMatch) {
   if (!issue) process.exit(94)
   Object.assign(issue, input)
   saveIssues(pages)
-  process.stdout.write(JSON.stringify(issue))
+  finishMutation(issue)
+}
+const commentMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments(?:\?per_page=100)?$/.exec(endpoint || "")
+if (method === "GET" && commentMatch) {
+  const commentsFile = path.join(process.env.MOCK_GH_STATE, "comments.jsonl")
+  const comments = fs.existsSync(commentsFile)
+    ? fs.readFileSync(commentsFile, "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+      .filter(comment => comment.issue === Number(commentMatch[1]))
+    : []
+  process.stdout.write(JSON.stringify([comments]))
   process.exit(0)
 }
-const commentMatch = /^repos\/[^/]+\/[^/]+\/issues\/(\d+)\/comments$/.exec(endpoint || "")
 if (method === "POST" && commentMatch) {
   const commentsFile = path.join(process.env.MOCK_GH_STATE, "comments.jsonl")
-  fs.appendFileSync(commentsFile, `${JSON.stringify({issue: Number(commentMatch[1]), ...input})}\n`)
-  process.stdout.write(JSON.stringify({id: 900, ...input}))
-  process.exit(0)
+  const comment = {id: 900, issue: Number(commentMatch[1]), ...input}
+  fs.appendFileSync(commentsFile, `${JSON.stringify(comment)}\n`)
+  finishMutation(comment)
 }
 if (method === "POST" && /^repos\/[^/]+\/[^/]+\/issues$/.test(endpoint || "")) {
   const pages = loadIssues()
-  const issue = {number: 88, state: "open", pull_request: null, ...input}
+  const number = Math.max(87, ...pages.flat().map(issue => issue.number)) + 1
+  const issue = {number, state: "open", pull_request: null, ...input}
   pages[0].push(issue)
   saveIssues(pages)
-  process.stdout.write(JSON.stringify(issue))
-  process.exit(0)
+  finishMutation(issue)
 }
 const runMatch = /^repos\/[^/]+\/[^/]+\/actions\/runs\/(\d+)$/.exec(endpoint || "")
 if (method === "GET" && runMatch) {
@@ -197,6 +220,14 @@ if (method === "GET" && runMatch) {
 const releaseMatch = /^repos\/[^/]+\/[^/]+\/releases\/tags\/(.+)$/.exec(endpoint || "")
 if (method === "GET" && releaseMatch) {
   const file = path.join(process.env.MOCK_GH_STATE, "releases", releaseMatch[1] + ".json")
+  const forced404s = Number(process.env.MOCK_RELEASE_LOOKUP_404S || 0)
+  const counterFile = path.join(process.env.MOCK_GH_STATE, "release-lookup-counter")
+  const lookups = fs.existsSync(counterFile) ? Number(fs.readFileSync(counterFile, "utf8")) : 0
+  if (lookups < forced404s) {
+    fs.writeFileSync(counterFile, String(lookups + 1))
+    process.stderr.write("gh: release not found (HTTP 404)\n")
+    process.exit(1)
+  }
   if (!fs.existsSync(file)) {
     process.stderr.write("gh: release not found (HTTP 404)\n")
     process.exit(1)
@@ -206,18 +237,35 @@ if (method === "GET" && releaseMatch) {
 }
 if (method === "POST" && /\/releases$/.test(endpoint || "")) {
   if (!input) process.exit(92)
-  const release = input
-  release.id = 500
+  const release = {...input, id: 500}
   const directory = path.join(process.env.MOCK_GH_STATE, "releases")
+  const file = path.join(directory, encodeURIComponent(release.tag_name) + ".json")
   fs.mkdirSync(directory, {recursive: true})
-  fs.writeFileSync(path.join(directory, encodeURIComponent(release.tag_name) + ".json"), JSON.stringify(release))
-  process.stdout.write(JSON.stringify(release))
-  process.exit(0)
+  if (fs.existsSync(file)) {
+    process.stderr.write("gh: release already exists (HTTP 422)\n")
+    process.exit(1)
+  }
+  fs.writeFileSync(file, JSON.stringify(release))
+  finishMutation(release)
 }
 process.stderr.write(`unexpected gh api call: ${JSON.stringify(args)}\n`)
 process.exit(93)
 EOF
 chmod +x "$mock_bin/gh"
+
+cleanup_preload="$tmp/fail-cleanup.mjs"
+cat > "$cleanup_preload" <<'EOF'
+import fs from "node:fs"
+import {syncBuiltinESMExports} from "node:module"
+
+const originalRmSync = fs.rmSync
+fs.rmSync = function(path, options) {
+  if (process.env.MOCK_FAIL_GITHUB_CLEANUP && String(path).includes("wordgard-github-"))
+    throw new Error("injected temporary cleanup failure")
+  return originalRmSync(path, options)
+}
+syncBuiltinESMExports()
+EOF
 
 export PATH="$mock_bin:$PATH"
 export MIRROR_GIT_LOG="$tmp/git.log"
@@ -254,6 +302,17 @@ expect_failure() {
   }
 }
 
+write_ci_run() {
+  local id=$1 sha=$2
+  mkdir -p "$MOCK_GH_STATE/runs"
+  node -e '
+    const fs = require("node:fs")
+    const [file, id, sha] = process.argv.slice(1)
+    fs.writeFileSync(file, JSON.stringify({id: Number(id), event: "push", head_branch: "main",
+      head_sha: sha, conclusion: "success", html_url: `https://github.example/runs/${id}`}))
+  ' "$MOCK_GH_STATE/runs/$id.json" "$id" "$sha"
+}
+
 # Prove the command allowlist rejects anything outside the controller's contract.
 if "$mock_bin/git" status >/dev/null 2>&1; then
   echo 'git command allowlist accepted an unexpected command' >&2
@@ -264,6 +323,7 @@ fi
 # A stale local SemVer and local fork-shaped tag must not affect discovery.
 "$real_git" -C "$work" tag 8.0.0
 "$real_git" -C "$work" tag obsidian-v0.5.0-9
+write_ci_run 101 "$candidate_sha"
 
 output=$(run_mirror)
 node -e '
@@ -347,6 +407,7 @@ prerelease_sha=$("$real_git" -C "$seed" rev-parse HEAD)
 "$real_git" -C "$seed" tag -a 0.6.0-rc.1 -m 'Release 0.6.0-rc.1'
 "$real_git" -C "$seed" push -q canonical main 0.6.0-rc.1
 "$real_git" -C "$seed" push -q origin main
+write_ci_run 102 "$prerelease_sha"
 MOCK_CI_SHA="$prerelease_sha" MIRROR_TEST_DRY_RUN=0 run_mirror "$prerelease_sha" 102 >/dev/null
 prerelease_tag=obsidian-v0.6.0-rc.1-1
 prerelease_file="$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$prerelease_tag").json"
@@ -389,19 +450,10 @@ activate_case() {
   export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=200
   unset MOCK_PUSH_COLLISION_MODE MOCK_PUSH_COLLISION_STATE MOCK_COLLISION_WRONG_SHA
   unset MOCK_FAIL_ENDPOINT_PATTERN MOCK_FAIL_STATUSES MOCK_FAIL_ISSUES_STATUS MOCK_CI_URL
+  unset MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN MOCK_COMMIT_THEN_FAIL_STATUSES
+  unset MOCK_RELEASE_LOOKUP_404S
   : > "$MIRROR_GIT_LOG"
   : > "$MIRROR_GH_LOG"
-}
-
-write_ci_run() {
-  local id=$1 sha=$2
-  mkdir -p "$MOCK_GH_STATE/runs"
-  node -e '
-    const fs = require("node:fs")
-    const [file, id, sha] = process.argv.slice(1)
-    fs.writeFileSync(file, JSON.stringify({id: Number(id), event: "push", head_branch: "main",
-      head_sha: sha, conclusion: "success", html_url: `https://github.example/runs/${id}`}))
-  ' "$MOCK_GH_STATE/runs/$id.json" "$id" "$sha"
 }
 
 create_fork_tag() {
@@ -428,6 +480,29 @@ valid_annotation() {
     "CI-Run-URL: https://github.example/runs/$run_id"
 }
 
+write_release() {
+  local tag=$1
+  node -e '
+    const fs = require("node:fs"), path = require("node:path")
+    const [directory, tag] = process.argv.slice(1)
+    const match = /^obsidian-v(.+)-([1-9][0-9]*)$/.exec(tag)
+    const release = {id: 701, tag_name: tag,
+      name: `Obsidian Wordgard ${match[1]} fork release ${match[2]}`,
+      draft: false, prerelease: match[1].includes("-"), body: "independent fixture"}
+    fs.writeFileSync(path.join(directory, encodeURIComponent(tag) + ".json"), JSON.stringify(release))
+  ' "$MOCK_GH_STATE/releases" "$tag"
+}
+
+add_new_canonical_release() {
+  printf '0.7.0\n' >> "$work/history"
+  "$real_git" -C "$work" commit -qam 'release 0.7.0'
+  candidate_sha=$("$real_git" -C "$work" rev-parse HEAD)
+  "$real_git" -C "$work" tag -a 0.7.0 -m 'Release 0.7.0'
+  "$real_git" -C "$work" push -q origin main
+  "$real_git" -C "$work" push -q upstream main 0.7.0
+  export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=240
+}
+
 # One valid post-baseline tag without a Release resumes only that Release.
 activate_case recover-partial
 partial_tag=obsidian-v0.6.0-rc.1-2
@@ -451,6 +526,57 @@ MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 212 >/dev/null
 [[ -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 [[ $("$real_git" --git-dir="$origin" rev-parse "$partial_tag^{commit}") == "$old_tip" ]]
 
+# Recovery is one state-machine outcome: even when a newer canonical release is
+# eligible, this run creates only the missing Release and proposes no new tag.
+activate_case recover-only
+old_tip=$candidate_sha
+write_ci_run 213 "$old_tip"
+create_fork_tag "$partial_tag" "$old_tip" "$(valid_annotation "$partial_tag" "$old_tip" 213)"
+add_new_canonical_release
+output=$(MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240)
+node -e '
+  const assert = require("node:assert/strict")
+  const [output, candidate, partial] = process.argv.slice(1)
+  assert.deepEqual(JSON.parse(output), {
+    baselineTag: "obsidian-v0.3.1-2",
+    candidateSha: candidate,
+    ciRun: {id: 240, url: "https://github.example/runs/240"},
+    watermark: "0.6.0-rc.1",
+    recovery: {forkTag: partial, action: "create-missing-release", performed: true},
+    selected: null,
+    supersededTags: [],
+    proposedForkTag: null,
+  })
+' "$output" "$candidate_sha" "$partial_tag"
+[[ -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+[[ -z $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.7.0-*') ]]
+[[ ! -f "$MOCK_GH_STATE/releases/obsidian-v0.7.0-1.json" ]]
+
+# Dry-run reports the same recovery outcome without mutating or suggesting that
+# a newer suffix can bypass the incomplete publication.
+activate_case recover-dry-run
+old_tip=$candidate_sha
+write_ci_run 214 "$old_tip"
+create_fork_tag "$partial_tag" "$old_tip" "$(valid_annotation "$partial_tag" "$old_tip" 214)"
+add_new_canonical_release
+output=$(MIRROR_TEST_DRY_RUN=1 run_mirror "$candidate_sha" 240)
+node -e '
+  const assert = require("node:assert/strict")
+  const [output, candidate, partial] = process.argv.slice(1)
+  assert.deepEqual(JSON.parse(output), {
+    baselineTag: "obsidian-v0.3.1-2",
+    candidateSha: candidate,
+    ciRun: {id: 240, url: "https://github.example/runs/240"},
+    watermark: "0.6.0-rc.1",
+    recovery: {forkTag: partial, action: "create-missing-release", performed: false},
+    selected: null,
+    supersededTags: [],
+    proposedForkTag: null,
+  })
+' "$output" "$candidate_sha" "$partial_tag"
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+[[ -z $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.7.0-*') ]]
+
 # Missing provenance and a Fork-Commit mismatch are unsafe.
 activate_case invalid-provenance
 create_fork_tag "$partial_tag" "$candidate_sha" $'Obsidian Wordgard 0.6.0-rc.1 fork release 2\n\nFork-Commit: missing-fields'
@@ -465,6 +591,58 @@ message=${message/Fork-Commit: $candidate_sha/Fork-Commit: $wrong_commit}
 create_fork_tag "$partial_tag" "$candidate_sha" "$message"
 MIRROR_TEST_DRY_RUN=0 expect_failure 'Fork-Commit does not match tag target' run_mirror "$candidate_sha" 200
 
+# A recorded canonical release must actually be contained in the fork commit
+# authorized for missing-Release recovery.
+activate_case canonical-not-ancestor
+write_ci_run 224 "$base_sha"
+create_fork_tag "$partial_tag" "$base_sha" "$(valid_annotation "$partial_tag" "$base_sha" 224)"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'canonical upstream commit is not an ancestor of tag target' \
+  run_mirror "$candidate_sha" 200
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+
+# Matching Release metadata cannot legitimize independently-created malformed
+# post-baseline tags.
+activate_case complete-lightweight
+"$real_git" -C "$work" tag "$partial_tag" "$candidate_sha"
+"$real_git" -C "$work" push -q origin "refs/tags/$partial_tag:refs/tags/$partial_tag"
+write_release "$partial_tag"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
+
+activate_case complete-malformed-tag-object
+write_ci_run 226 "$candidate_sha"
+message_file="$tmp/malformed-tag-message"
+valid_annotation "$partial_tag" "$candidate_sha" 226 > "$message_file"
+"$real_git" -C "$work" tag -a independently-named-tag "$candidate_sha" -F "$message_file"
+malformed_object=$("$real_git" -C "$work" rev-parse independently-named-tag)
+"$real_git" -C "$work" update-ref "refs/tags/$partial_tag" "$malformed_object"
+"$real_git" -C "$work" push -q origin "refs/tags/$partial_tag:refs/tags/$partial_tag"
+write_release "$partial_tag"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'invalid provenance' run_mirror "$candidate_sha" 200
+
+activate_case complete-wrong-target
+write_ci_run 222 "$candidate_sha"
+message=$(valid_annotation "$partial_tag" "$candidate_sha" 222)
+message=${message/Fork-Commit: $candidate_sha/Fork-Commit: $base_sha}
+create_fork_tag "$partial_tag" "$candidate_sha" "$message"
+write_release "$partial_tag"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'Fork-Commit does not match tag target' run_mirror "$candidate_sha" 200
+
+activate_case complete-unrelated-target
+unrelated_sha=$("$real_git" -C "$work" commit-tree "$("$real_git" -C "$work" write-tree)" -m 'unrelated fork target')
+write_ci_run 225 "$unrelated_sha"
+create_fork_tag "$partial_tag" "$unrelated_sha" "$(valid_annotation "$partial_tag" "$unrelated_sha" 225)"
+write_release "$partial_tag"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'canonical upstream commit is not an ancestor of tag target' \
+  run_mirror "$candidate_sha" 200
+
+activate_case complete-invalid-provenance
+write_ci_run 223 "$candidate_sha"
+message=$(valid_annotation "$partial_tag" "$candidate_sha" 223)
+message=${message/CI-Run-URL: https:\/\/github.example\/runs\/223/CI-Run-URL: https:\/\/github.example\/runs\/999}
+create_fork_tag "$partial_tag" "$candidate_sha" "$message"
+write_release "$partial_tag"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run URL does not match tag provenance' run_mirror "$candidate_sha" 200
+
 # More than one incomplete post-baseline publication is ambiguous.
 activate_case multiple-partials
 write_ci_run 231 "$candidate_sha"
@@ -472,16 +650,6 @@ create_fork_tag "$partial_tag" "$candidate_sha" "$(valid_annotation "$partial_ta
 second_partial=obsidian-v0.6.0-rc.1-3
 create_fork_tag "$second_partial" "$candidate_sha" "$(valid_annotation "$second_partial" "$candidate_sha" 231)"
 MIRROR_TEST_DRY_RUN=0 expect_failure 'multiple incomplete post-baseline tags' run_mirror "$candidate_sha" 200
-
-add_new_canonical_release() {
-  printf '0.7.0\n' >> "$work/history"
-  "$real_git" -C "$work" commit -qam 'release 0.7.0'
-  candidate_sha=$("$real_git" -C "$work" rev-parse HEAD)
-  "$real_git" -C "$work" tag -a 0.7.0 -m 'Release 0.7.0'
-  "$real_git" -C "$work" push -q origin main
-  "$real_git" -C "$work" push -q upstream main 0.7.0
-  export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=240
-}
 
 # A rejected push is reconciled exactly once. It may become a complete no-op,
 # resume one valid missing Release, or fail without selecting the next suffix.
@@ -511,10 +679,36 @@ for transient_status in 500 502 503 504; do
   MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 200 >/dev/null
   node -e '
     const calls = require("node:fs").readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
-    const runs = calls.filter(call => call.some(arg => /\/actions\/runs\//.test(arg)))
+    const runs = calls.filter(call => call.some(arg => /\/actions\/runs\/200$/.test(arg)))
     if (runs.length !== 2) throw new Error(`expected one retry before success, got ${runs.length}`)
   ' "$MIRROR_GH_LOG"
 done
+
+# An ambiguous Release POST is reconciled against the tag lookup before another
+# create is attempted, so commit-then-503 produces one final Release.
+activate_case release-commit-then-error
+add_new_canonical_release
+export MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN='POST repos/.*/releases$'
+export MOCK_COMMIT_THEN_FAIL_STATUSES=503
+MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240 >/dev/null
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const calls = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(calls.filter(call => call.includes("POST") && call.some(arg => /\/releases$/.test(arg))).length, 1)
+  assert.equal(fs.readdirSync(process.argv[2]).filter(name => name === "obsidian-v0.7.0-1.json").length, 1)
+' "$MIRROR_GH_LOG" "$MOCK_GH_STATE/releases"
+
+# A 404 lookup can race with another creator. A duplicate-create 422 is
+# reconciled to the independently observable matching Release.
+activate_case release-lookup-race
+export MOCK_RELEASE_LOOKUP_404S=1
+MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 200 >/dev/null
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const calls = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(calls.filter(call => call.includes("POST") && call.some(arg => /\/releases$/.test(arg))).length, 1)
+  assert.equal(fs.readdirSync(process.argv[2]).filter(name => name.endsWith(".json")).length, 2)
+' "$MIRROR_GH_LOG" "$MOCK_GH_STATE/releases"
 
 # Retry exhaustion creates one actionable issue with complete known context.
 activate_case retry-exhausted
@@ -534,6 +728,103 @@ node -e '
   assert.match(issue.body, /Selected upstream: `0\.7\.0` at `[0-9a-f]{40}`/)
   assert.match(issue.body, /Intended fork tag: `obsidian-v0\.7\.0-1`/)
 ' "$MIRROR_GH_LOG" "$MOCK_GH_STATE/issues-pages.json"
+
+# Failure-issue creation reconciles an ambiguous commit before retrying, so one
+# issue remains and the reporting path itself succeeds.
+activate_case issue-create-commit-then-error
+add_new_canonical_release
+export MOCK_FAIL_ENDPOINT_PATTERN='POST repos/.*/releases$'
+export MOCK_FAIL_STATUSES=422
+export MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN='POST repos/.*/issues$'
+export MOCK_COMMIT_THEN_FAIL_STATUSES=503
+output=''
+if output=$(MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240 2>&1); then
+  echo 'expected publication failure' >&2
+  exit 1
+fi
+[[ $output == *'HTTP 422'* ]]
+[[ $output != *'failure reporting also failed'* ]]
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const issues = JSON.parse(fs.readFileSync(process.argv[1], "utf8")).flat()
+  const calls = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(issues.filter(issue => issue.title === "Upstream release mirroring requires attention").length, 1)
+  assert.equal(calls.filter(call => call.includes("POST") && call.some(arg => /\/issues$/.test(arg))).length, 1)
+' "$MOCK_GH_STATE/issues-pages.json" "$MIRROR_GH_LOG"
+
+# Reopen PATCH reconciliation observes the committed state before retrying.
+activate_case issue-reopen-commit-then-error
+add_new_canonical_release
+node -e '
+  const fs = require("node:fs")
+  fs.writeFileSync(process.argv[1], JSON.stringify([[{number: 42, state: "closed",
+    title: "Upstream release mirroring requires attention", pull_request: null}]]))
+' "$MOCK_GH_STATE/issues-pages.json"
+export MOCK_FAIL_ENDPOINT_PATTERN='POST repos/.*/releases$'
+export MOCK_FAIL_STATUSES=422
+export MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN='PATCH repos/.*/issues/42$'
+export MOCK_COMMIT_THEN_FAIL_STATUSES=503
+output=''
+if output=$(MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240 2>&1); then
+  echo 'expected publication failure' >&2
+  exit 1
+fi
+[[ $output == *'HTTP 422'* ]]
+[[ $output != *'failure reporting also failed'* ]]
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const issue = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[0][0]
+  const calls = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(issue.state, "open")
+  assert.equal(calls.filter(call => call.includes("PATCH") && call.some(arg => /\/issues\/42$/.test(arg))).length, 1)
+' "$MOCK_GH_STATE/issues-pages.json" "$MIRROR_GH_LOG"
+
+# Comment POST reconciliation finds the exact committed body and does not append
+# a duplicate after a transient response.
+activate_case issue-comment-commit-then-error
+add_new_canonical_release
+node -e '
+  const fs = require("node:fs")
+  fs.writeFileSync(process.argv[1], JSON.stringify([[{number: 42, state: "open",
+    title: "Upstream release mirroring requires attention", pull_request: null}]]))
+' "$MOCK_GH_STATE/issues-pages.json"
+export MOCK_FAIL_ENDPOINT_PATTERN='POST repos/.*/releases$'
+export MOCK_FAIL_STATUSES=422
+export MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN='POST repos/.*/issues/42/comments$'
+export MOCK_COMMIT_THEN_FAIL_STATUSES=503
+output=''
+if output=$(MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240 2>&1); then
+  echo 'expected publication failure' >&2
+  exit 1
+fi
+[[ $output == *'HTTP 422'* ]]
+[[ $output != *'failure reporting also failed'* ]]
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const comments = fs.readFileSync(process.argv[1], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  const calls = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(comments.length, 1)
+  assert.equal(calls.filter(call => call.includes("POST") && call.some(arg => /\/issues\/42\/comments$/.test(arg))).length, 1)
+' "$MOCK_GH_STATE/comments.jsonl" "$MIRROR_GH_LOG"
+
+# Close PATCH reconciliation lets a successful no-op controller run finish with
+# one state mutation after a commit-then-transient response.
+activate_case issue-close-commit-then-error
+node -e '
+  const fs = require("node:fs")
+  fs.writeFileSync(process.argv[1], JSON.stringify([[{number: 42, state: "open",
+    title: "Upstream release mirroring requires attention", pull_request: null}]]))
+' "$MOCK_GH_STATE/issues-pages.json"
+export MOCK_COMMIT_THEN_FAIL_ENDPOINT_PATTERN='PATCH repos/.*/issues/42$'
+export MOCK_COMMIT_THEN_FAIL_STATUSES=503
+MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 200 >/dev/null
+node -e '
+  const assert = require("node:assert/strict"), fs = require("node:fs")
+  const issue = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))[0][0]
+  const calls = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").filter(Boolean).map(JSON.parse)
+  assert.equal(issue.state, "closed")
+  assert.equal(calls.filter(call => call.includes("PATCH") && call.some(arg => /\/issues\/42$/.test(arg))).length, 1)
+' "$MOCK_GH_STATE/issues-pages.json" "$MIRROR_GH_LOG"
 
 # A permanent 4xx is not retried. Exact-title lookup is paginated, ignores an
 # exact-title pull request, reopens the real closed issue, and comments on it.
@@ -593,6 +884,21 @@ node -e '
   if (issue.state !== "closed") process.exit(1)
 ' "$MOCK_GH_STATE/issues-pages.json"
 
+# Temporary-file cleanup cannot replace an active API failure.
+activate_case cleanup-error-precedence
+add_new_canonical_release
+export MOCK_FAIL_ENDPOINT_PATTERN='POST repos/.*/releases$'
+export MOCK_FAIL_STATUSES=422
+export MOCK_FAIL_ISSUES_STATUS=400
+output=''
+if output=$(NODE_OPTIONS="--import=$cleanup_preload" MOCK_FAIL_GITHUB_CLEANUP=1 \
+    MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 240 2>&1); then
+  echo 'expected publication and issue reporting failure' >&2
+  exit 1
+fi
+[[ $output == *'HTTP 422'* ]]
+[[ $output == *'failure reporting also failed'*'HTTP 400'* ]]
+
 # Failure reporting never hides the publication error that caused it.
 activate_case issue-error-precedence
 add_new_canonical_release
@@ -612,14 +918,14 @@ canonical=$original_canonical
 work=$original_work
 export MOCK_GH_STATE=$original_gh_state
 candidate_sha=$prerelease_sha
-export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=101
+export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=299
 unset MOCK_PUSH_COLLISION_MODE MOCK_PUSH_COLLISION_STATE MOCK_COLLISION_WRONG_SHA
 
-MOCK_CI_EVENT=pull_request expect_failure 'CI run event must be push' run_mirror
-MOCK_CI_BRANCH=feature expect_failure 'CI run head branch must be main' run_mirror
-MOCK_CI_CONCLUSION=failure expect_failure 'CI run conclusion must be success' run_mirror
+MOCK_CI_EVENT=pull_request expect_failure 'CI run event must be push' run_mirror "$candidate_sha" 299
+MOCK_CI_BRANCH=feature expect_failure 'CI run head branch must be main' run_mirror "$candidate_sha" 299
+MOCK_CI_CONCLUSION=failure expect_failure 'CI run conclusion must be success' run_mirror "$candidate_sha" 299
 MOCK_CI_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
-  expect_failure 'CI run head SHA does not match candidate' run_mirror
+  expect_failure 'CI run head SHA does not match candidate' run_mirror "$candidate_sha" 299
 
 printf 'stale\n' >> "$seed/history"
 "$real_git" -C "$seed" commit -qam stale
@@ -639,7 +945,7 @@ printf 'side\n' > "$side/history"
 "$real_git" -C "$side" remote add canonical "$canonical"
 "$real_git" -C "$side" push -q --force canonical 0.3.1
 "$real_git" -C "$work" tag -d 0.3.1 >/dev/null
-MOCK_CI_SHA="$stale_tip" expect_failure 'canonical baseline tag is not reachable' run_mirror "$stale_tip"
+MOCK_CI_SHA="$stale_tip" expect_failure 'canonical baseline tag is not reachable' run_mirror "$stale_tip" 299
 
 expect_failure 'candidate SHA must be exactly 40 hexadecimal characters' run_mirror deadbeef
 expect_failure 'CI run ID must be a positive decimal integer' run_mirror "$stale_tip" 0
