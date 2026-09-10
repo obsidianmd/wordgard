@@ -66,15 +66,64 @@ function isAncestor(ancestor: string, descendant: string): boolean {
   throw new Error(`git merge-base failed${result.stderr ? `: ${result.stderr.trim()}` : ""}`)
 }
 
-function listTags(): readonly string[] {
-  let output = run("git", ["tag", "--list"])
-  return output ? output.split("\n").sort() : []
+function validateBaselineSyntax(tag: string): void {
+  if (!tag.startsWith("obsidian-v"))
+    throw new Error("baseline tag must have the form obsidian-v<version>-<positive-suffix>")
+  let suffixSeparator = tag.lastIndexOf("-")
+  let version = tag.slice("obsidian-v".length, suffixSeparator)
+  let suffix = tag.slice(suffixSeparator + 1)
+  let parsedVersion = parseSemVerTag(version)
+  if (!parsedVersion || parsedVersion.normalized != version || !/^[1-9][0-9]*$/.test(suffix))
+    throw new Error("baseline tag must have the form obsidian-v<version>-<positive-suffix>")
+}
+
+function listRemoteTags(remote: "upstream" | "origin"): ReadonlyMap<string, string> {
+  let output = run("git", ["ls-remote", "--tags", "--refs", remote])
+  let tags = new Map<string, string>()
+  if (!output) return tags
+  for (let line of output.split("\n")) {
+    let match = /^([0-9a-fA-F]{40})\trefs\/tags\/(.+)$/.exec(line)
+    if (!match) throw new Error(`invalid tag response from ${remote}`)
+    let object = match[1].toLowerCase(), tag = match[2]
+    let previous = tags.get(tag)
+    if (previous && previous != object) throw new Error(`conflicting ${remote} tag refs: ${tag}`)
+    tags.set(tag, object)
+  }
+  return tags
 }
 
 function discoverRepositoryState(baselineTag: string, candidateSha: string): Discovery {
   run("git", ["fetch", "--no-tags", "origin", "main"])
   run("git", ["fetch", "--tags", "upstream"])
   run("git", ["fetch", "--tags", "origin"])
+
+  let upstreamTags = listRemoteTags("upstream")
+  let originTags = listRemoteTags("origin")
+  for (let [tag, upstreamObject] of upstreamTags) {
+    let originObject = originTags.get(tag)
+    if (originObject && originObject != upstreamObject)
+      throw new Error(`conflicting upstream and origin tag refs: ${tag}`)
+  }
+
+  let canonical: CanonicalRelease[] = []
+  for (let [tag, object] of upstreamTags) {
+    let version = parseSemVerTag(tag)
+    if (!version) continue
+    canonical.push({
+      tag,
+      version,
+      commit: run("git", ["rev-parse", `${object}^{commit}`]).toLowerCase(),
+    })
+  }
+
+  let forkTags: ForkReleaseTag[] = []
+  for (let [tag, object] of originTags) {
+    if (!parseForkTag(tag, "", canonical)) continue
+    let commit = run("git", ["rev-parse", `${object}^{commit}`]).toLowerCase()
+    forkTags.push(parseForkTag(tag, commit, canonical)!)
+  }
+  let baseline = forkTags.find(tag => tag.tag == baselineTag)
+  if (!baseline) throw new Error(`baseline tag not found: ${baselineTag}`)
 
   let originMain = run("git", ["rev-parse", "refs/remotes/origin/main"]).toLowerCase()
   if (candidateSha != originMain) throw new Error("candidate SHA is not origin/main")
@@ -83,23 +132,6 @@ function discoverRepositoryState(baselineTag: string, candidateSha: string): Dis
     `repos/${requireEnvironment("GITHUB_REPOSITORY")}/actions/runs/${cliInputs.ciRunId}`,
   )
   validateCiRun(ciRun, candidateSha)
-
-  let tags = listTags()
-  let canonical: CanonicalRelease[] = []
-  for (let tag of tags) {
-    let version = parseSemVerTag(tag)
-    if (!version) continue
-    canonical.push({tag, version, commit: run("git", ["rev-parse", `${tag}^{commit}`]).toLowerCase()})
-  }
-
-  let forkTags: ForkReleaseTag[] = []
-  for (let tag of tags) {
-    if (!parseForkTag(tag, "", canonical)) continue
-    let commit = run("git", ["rev-parse", `${tag}^{commit}`]).toLowerCase()
-    forkTags.push(parseForkTag(tag, commit, canonical)!)
-  }
-  let baseline = forkTags.find(tag => tag.tag == baselineTag)
-  if (!baseline) throw new Error(`baseline tag not found: ${baselineTag}`)
 
   let reachableCanonicalTags = new Set<string>()
   for (let release of canonical)
@@ -130,6 +162,7 @@ function parseInputs(): {baselineTag: string, candidateSha: string, ciRunId: num
   let [command, baselineTag, candidateInput, ciRunInput, ...extra] = process.argv.slice(2)
   if (command != "publish" || !baselineTag || !candidateInput || !ciRunInput || extra.length)
     throw new Error("usage: mirror-release.ts publish BASELINE_TAG CANDIDATE_SHA CI_RUN_ID")
+  validateBaselineSyntax(baselineTag)
   if (!/^[0-9a-fA-F]{40}$/.test(candidateInput))
     throw new Error("candidate SHA must be exactly 40 hexadecimal characters")
   if (!/^[1-9][0-9]*$/.test(ciRunInput))

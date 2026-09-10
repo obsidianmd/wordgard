@@ -32,9 +32,17 @@ printf '0.5.0\n' >> "$seed/history"
 "$real_git" -C "$seed" tag -a v0.5.0 -m 'Release 0.5.0'
 "$real_git" -C "$seed" remote add canonical "$canonical"
 "$real_git" -C "$seed" push -q canonical main --tags
+# Fork-shaped tags outside origin must not affect the fork suffix.
+"$real_git" -C "$seed" tag -a obsidian-v0.5.0-7 -m 'Upstream-only fork-shaped tag'
+"$real_git" -C "$seed" push -q canonical obsidian-v0.5.0-7
+"$real_git" -C "$seed" tag -d obsidian-v0.5.0-7 >/dev/null
 "$real_git" -C "$seed" tag -a obsidian-v0.3.1-2 "$base_sha" -m 'Fork baseline'
 "$real_git" -C "$seed" remote add origin "$origin"
 "$real_git" -C "$seed" push -q origin main obsidian-v0.3.1-2
+# SemVer tags outside upstream must not become canonical releases.
+"$real_git" -C "$seed" tag 9.0.0
+"$real_git" -C "$seed" push -q origin 9.0.0
+"$real_git" -C "$seed" tag -d 9.0.0 >/dev/null
 "$real_git" --git-dir="$origin" symbolic-ref HEAD refs/heads/main
 candidate_sha=$("$real_git" -C "$seed" rev-parse HEAD)
 
@@ -47,6 +55,24 @@ cat > "$mock_bin/git" <<EOF
 #!/usr/bin/env bash
 printf '%q ' "\$@" >> "\${MIRROR_GIT_LOG:?}"
 printf '\n' >> "\$MIRROR_GIT_LOG"
+commit_suffix='^{commit}'
+case "\${1-}" in
+  fetch)
+    [[ \$# == 4 && \$2 == --no-tags && \$3 == origin && \$4 == main ]] ||
+      [[ \$# == 3 && \$2 == --tags && (\$3 == upstream || \$3 == origin) ]] || exit 91
+    ;;
+  ls-remote)
+    [[ \$# == 4 && \$2 == --tags && \$3 == --refs && (\$4 == upstream || \$4 == origin) ]] || exit 91
+    ;;
+  rev-parse)
+    [[ \$# == 2 && \$2 == refs/remotes/origin/main ]] ||
+      [[ \$# == 2 && \${2:0:40} =~ ^[0-9a-fA-F]{40}\$ && \${2:40} == "\$commit_suffix" ]] || exit 91
+    ;;
+  merge-base)
+    [[ \$# == 4 && \$2 == --is-ancestor && \$3 =~ ^[0-9a-fA-F]{40}\$ && \$4 =~ ^[0-9a-fA-F]{40}\$ ]] || exit 91
+    ;;
+  *) exit 91 ;;
+esac
 exec "$real_git" "\$@"
 EOF
 chmod +x "$mock_bin/git"
@@ -70,7 +96,7 @@ export MOCK_CI_SHA="$candidate_sha"
 
 run_mirror() {
   (cd "$work" && MIRROR_RELEASE_DRY_RUN=1 node "$root/bin/mirror-release.ts" \
-    publish obsidian-v0.3.1-2 "${1:-$candidate_sha}" "${2:-101}")
+    publish "${3:-obsidian-v0.3.1-2}" "${1:-$candidate_sha}" "${2:-101}")
 }
 
 expect_failure() {
@@ -86,6 +112,17 @@ expect_failure() {
     exit 1
   }
 }
+
+# Prove the command allowlist rejects anything outside the controller's contract.
+if "$mock_bin/git" status >/dev/null 2>&1; then
+  echo 'git command allowlist accepted an unexpected command' >&2
+  exit 1
+fi
+: > "$MIRROR_GIT_LOG"
+
+# A stale local SemVer and local fork-shaped tag must not affect discovery.
+"$real_git" -C "$work" tag 8.0.0
+"$real_git" -C "$work" tag obsidian-v0.5.0-9
 
 output=$(run_mirror)
 node -e '
@@ -104,14 +141,11 @@ node -e '
 
 [[ $(wc -l < "$MIRROR_GH_LOG") -eq 1 ]]
 [[ $(cut -d' ' -f1 "$MIRROR_GH_LOG") == api ]]
-if awk '$1 == "push" || ($1 == "tag" && $2 != "--list") { found = 1 } END { exit !found }' \
-  "$MIRROR_GIT_LOG"; then
-  echo 'controller attempted a mutating git command' >&2
-  exit 1
-fi
+# Every recorded controller command has already passed the explicit wrapper allowlist.
 [[ -z $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.5.0-*') ]]
 
 MOCK_CI_EVENT=pull_request expect_failure 'CI run event must be push' run_mirror
+MOCK_CI_BRANCH=feature expect_failure 'CI run head branch must be main' run_mirror
 MOCK_CI_CONCLUSION=failure expect_failure 'CI run conclusion must be success' run_mirror
 MOCK_CI_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
   expect_failure 'CI run head SHA does not match candidate' run_mirror
@@ -138,6 +172,20 @@ MOCK_CI_SHA="$stale_tip" expect_failure 'canonical baseline tag is not reachable
 
 expect_failure 'candidate SHA must be exactly 40 hexadecimal characters' run_mirror deadbeef
 expect_failure 'CI run ID must be a positive decimal integer' run_mirror "$stale_tip" 0
+
+: > "$MIRROR_GIT_LOG"
+: > "$MIRROR_GH_LOG"
+expect_failure 'baseline tag must have the form obsidian-v<version>-<positive-suffix>' \
+  run_mirror "$stale_tip" 101 malformed
+expect_failure 'baseline tag must have the form obsidian-v<version>-<positive-suffix>' \
+  run_mirror "$stale_tip" 101 obsidian-vv0.3.1-2
+[[ ! -s $MIRROR_GIT_LOG ]]
+[[ ! -s $MIRROR_GH_LOG ]]
+
+# The mandatory tag fetch must fail closed when remotes disagree on one name.
+"$real_git" -C "$seed" push -q canonical "$candidate_sha:refs/tags/source-conflict"
+"$real_git" -C "$seed" push -q origin "$stale_tip:refs/tags/source-conflict"
+expect_failure 'git fetch --tags origin' run_mirror "$stale_tip"
 
 [[ -z $("$real_git" --git-dir="$origin" tag --list 'obsidian-v0.5.0-*') ]]
 echo 'mirror-release discovery tests passed'
