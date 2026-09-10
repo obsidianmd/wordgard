@@ -1,0 +1,89 @@
+name: Mirror upstream release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      candidate_sha:
+        description: Exact main commit to validate and release
+        required: true
+        type: string
+      ci_run_id:
+        description: Successful push CI run for candidate_sha
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+
+concurrency:
+  group: mirror-upstream-release
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    name: Publish release
+    if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out trusted release controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Stage trusted release controller
+        run: |
+          mkdir -p "$RUNNER_TEMP/mirror-release"
+          install -m 700 bin/mirror-release.ts "$RUNNER_TEMP/mirror-release/mirror-release.ts"
+          install -m 600 bin/release-version.ts "$RUNNER_TEMP/mirror-release/release-version.ts"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Resolve release inputs
+        id: inputs
+        env:
+          CANDIDATE_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.candidate_sha }}
+          CI_RUN_ID: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.ci_run_id }}
+        run: |
+          [[ $CANDIDATE_SHA =~ ^[0-9a-fA-F]{40}$ ]] || {
+            printf 'candidate SHA must be exactly 40 hexadecimal characters\n' >&2
+            exit 1
+          }
+          [[ $CI_RUN_ID =~ ^[1-9][0-9]*$ ]] || {
+            printf 'CI run ID must be a positive decimal integer\n' >&2
+            exit 1
+          }
+          printf 'candidate_sha=%s\n' "$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          printf 'ci_run_id=%s\n' "$CI_RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Check out candidate
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.inputs.outputs.candidate_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://code.haverbeke.berlin/wordgard/wordgard.git
+          gh auth setup-git
+
+      - name: Publish mirrored release
+        env:
+          BASELINE_TAG: obsidian-v0.3.1-2
+          CANDIDATE_SHA: ${{ steps.inputs.outputs.candidate_sha }}
+          CI_RUN_ID: ${{ steps.inputs.outputs.ci_run_id }}
+        run: node "$RUNNER_TEMP/mirror-release/mirror-release.ts" publish "$BASELINE_TAG" "$CANDIDATE_SHA" "$CI_RUN_ID"

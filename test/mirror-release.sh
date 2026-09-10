@@ -3,9 +3,104 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+workflow="$root/.github/workflows/mirror-release.yml"
+ci_workflow="$root/.github/workflows/ci.yml"
+workflow_run_fixture="$root/test/fixtures/mirror-release-workflow-run.json"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 real_git=$(command -v git)
+
+[[ -f $workflow ]] || {
+  printf 'Mirror release workflow is missing: %s\n' "$workflow" >&2
+  exit 1
+}
+
+assert_contract() {
+  local file=$1 expected=$2
+  grep -Fq -- "$expected" "$file" || {
+    printf 'Workflow contract is missing from %s: %s\n' "$file" "$expected" >&2
+    exit 1
+  }
+}
+
+contract_line() {
+  local file=$1 expected=$2
+  grep -nF -- "$expected" "$file" | head -n 1 | cut -d: -f1
+}
+
+assert_contract "$workflow" 'name: Mirror upstream release'
+assert_contract "$workflow" 'workflow_run:'
+assert_contract "$workflow" 'workflows: [CI]'
+assert_contract "$workflow" 'types: [completed]'
+assert_contract "$workflow" 'branches: [main]'
+assert_contract "$workflow" 'workflow_dispatch:'
+assert_contract "$workflow" 'candidate_sha:'
+assert_contract "$workflow" 'ci_run_id:'
+[[ $(grep -Fc 'required: true' "$workflow") -eq 2 ]]
+release_permissions=$(awk '
+  /^permissions:$/ { inside = 1; next }
+  inside && /^[^[:space:]]/ { exit }
+  inside { print }
+' "$workflow")
+diff -u <(printf '  actions: read\n  contents: write\n  issues: write\n') \
+  <(printf '%s\n' "$release_permissions")
+assert_contract "$workflow" 'group: mirror-upstream-release'
+assert_contract "$workflow" 'cancel-in-progress: false'
+assert_contract "$workflow" "if: github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')"
+assert_contract "$workflow" 'ref: main'
+assert_contract "$workflow" 'install -m 700 bin/mirror-release.ts "$RUNNER_TEMP/mirror-release/mirror-release.ts"'
+assert_contract "$workflow" 'install -m 600 bin/release-version.ts "$RUNNER_TEMP/mirror-release/release-version.ts"'
+assert_contract "$workflow" "CANDIDATE_SHA: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.candidate_sha }}"
+assert_contract "$workflow" "CI_RUN_ID: \${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || inputs.ci_run_id }}"
+assert_contract "$workflow" 'ref: ${{ steps.inputs.outputs.candidate_sha }}'
+assert_contract "$workflow" 'fetch-depth: 0'
+[[ $(grep -Fc 'persist-credentials: false' "$workflow") -eq 2 ]]
+assert_contract "$workflow" 'git config user.name "github-actions[bot]"'
+assert_contract "$workflow" 'git config user.email "41898282+github-actions[bot]@users.noreply.github.com"'
+assert_contract "$workflow" 'git remote add upstream https://code.haverbeke.berlin/wordgard/wordgard.git'
+assert_contract "$workflow" 'BASELINE_TAG: obsidian-v0.3.1-2'
+assert_contract "$workflow" 'CANDIDATE_SHA: ${{ steps.inputs.outputs.candidate_sha }}'
+assert_contract "$workflow" 'CI_RUN_ID: ${{ steps.inputs.outputs.ci_run_id }}'
+controller_call='node "$RUNNER_TEMP/mirror-release/mirror-release.ts" publish "$BASELINE_TAG" "$CANDIDATE_SHA" "$CI_RUN_ID"'
+assert_contract "$workflow" "$controller_call"
+[[ $(grep -Fc "$controller_call" "$workflow") -eq 1 ]]
+[[ $(contract_line "$workflow" 'Stage trusted release controller') -lt \
+  $(contract_line "$workflow" 'Check out candidate') ]]
+[[ $(contract_line "$workflow" 'Check out candidate') -lt \
+  $(contract_line "$workflow" 'Publish mirrored release') ]]
+if grep -Fq 'pull-requests: write' "$workflow" || grep -Fq 'actions: write' "$workflow"; then
+  printf 'Mirror release workflow has excessive permissions\n' >&2
+  exit 1
+fi
+
+node - "$workflow_run_fixture" <<'NODE'
+const assert = require("node:assert/strict")
+const fixture = JSON.parse(require("node:fs").readFileSync(process.argv[2], "utf8"))
+const run = fixture.workflow_run
+assert.equal(fixture.action, "completed")
+assert.deepEqual(
+  [run.name, run.event, run.status, run.conclusion, run.head_branch],
+  ["CI", "push", "completed", "success", "main"],
+)
+assert.equal(run.head_sha, "0123456789abcdef0123456789abcdef01234567")
+assert.match(run.head_sha, /^[0-9a-f]{40}$/)
+assert.equal(run.id, 987654321)
+NODE
+
+assert_contract "$ci_workflow" 'push:'
+assert_contract "$ci_workflow" 'pull_request:'
+assert_contract "$ci_workflow" 'workflow_dispatch:'
+[[ $(grep -Fc 'branches: [main]' "$ci_workflow") -eq 2 ]]
+ci_permissions=$(awk '
+  /^permissions:$/ { inside = 1; next }
+  inside && /^[^[:space:]]/ { exit }
+  inside { print }
+' "$ci_workflow")
+diff -u <(printf '  contents: read\n') <(printf '%s\n' "$ci_permissions")
+assert_contract "$ci_workflow" 'run: bash test/mirror-release.sh'
+assert_contract "$ci_workflow" 'run: shellcheck bin/prepare-upstream-sync.sh bin/upstream-sync-workflow.sh test/build-failure.sh test/upstream-sync.sh test/mirror-release.sh'
+[[ $(contract_line "$ci_workflow" 'run: bash test/upstream-sync.sh') -lt \
+  $(contract_line "$ci_workflow" 'run: bash test/mirror-release.sh') ]]
 
 export GIT_AUTHOR_NAME='Mirror Test'
 export GIT_AUTHOR_EMAIL='mirror@example.com'
