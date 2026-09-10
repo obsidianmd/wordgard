@@ -66,18 +66,20 @@ trusted_install="install -m 700 bin/upstream-sync-workflow.sh \"\$RUNNER_TEMP/up
 prepare_run="run: bin/prepare-upstream-sync.sh upstream/main \"\$SYNC_BRANCH\""
 assert_contract "$trusted_install"
 assert_contract 'id: trust'
-assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" check-ci main HEAD"
+assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" check-trusted-paths main HEAD"
 assert_contract '- name: Dispatch trusted CI'
-assert_contract "if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_ci == 'true'"
+assert_contract "if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_paths == 'true'"
 assert_contract "run: gh workflow run ci.yml --ref \"\$SYNC_BRANCH\""
-assert_contract "if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_ci == 'false'"
+assert_contract "if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_paths == 'false'"
+assert_contract "CHANGED_PRIVILEGED_PATHS: \${{ steps.trust.outputs.changed_privileged_paths }}"
+assert_contract 'Privileged release-controller or CI changes require manual review; automatic CI dispatch is disabled.'
+assert_contract "Changed privileged paths: \$changed_privileged_paths"
 assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" find-issue all \"\$CONFLICT_ISSUE_TITLE\""
 assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" find-issue open \"\$CONFLICT_ISSUE_TITLE\""
 assert_contract "gh issue create --title \"\$CONFLICT_ISSUE_TITLE\""
 assert_contract "gh issue reopen \"\$issue_number\""
 assert_contract "gh issue comment \"\$issue_number\""
 assert_contract "gh issue close \"\$issue_number\""
-assert_contract 'CI workflow changes require manual review; automatic CI dispatch is disabled.'
 [[ $(contract_line "$trusted_install") -lt $(contract_line "$prepare_run") ]]
 
 # Every helper invocation gets a private step-output file. The sentinel proves
@@ -137,27 +139,61 @@ trust_repo="$tmp/trust-repo"
 git init --initial-branch=main "$trust_repo" >/dev/null
 git -C "$trust_repo" config user.name "Fork Maintainer"
 git -C "$trust_repo" config user.email "fork@example.com"
-mkdir -p "$trust_repo/.github/workflows"
+mkdir -p "$trust_repo/.github/workflows" "$trust_repo/bin"
 printf 'name: CI\n' >"$trust_repo/.github/workflows/ci.yml"
-git -C "$trust_repo" add .github/workflows/ci.yml
-git -C "$trust_repo" commit -m "Add trusted CI" >/dev/null
+printf 'name: Mirror upstream release\n' >"$trust_repo/.github/workflows/mirror-release.yml"
+printf 'name: Sync upstream\n' >"$trust_repo/.github/workflows/sync-upstream.yml"
+printf 'console.log("mirror")\n' >"$trust_repo/bin/mirror-release.ts"
+printf 'export {}\n' >"$trust_repo/bin/release-version.ts"
+printf '#!/usr/bin/env bash\n' >"$trust_repo/bin/upstream-sync-workflow.sh"
+printf '#!/usr/bin/env bash\n' >"$trust_repo/bin/prepare-upstream-sync.sh"
+git -C "$trust_repo" add .github/workflows bin
+git -C "$trust_repo" commit -m "Add trusted synchronization and release controllers" >/dev/null
 
 cd "$trust_repo"
 staged_workflow_script="$tmp/staged-upstream-sync-workflow.sh"
 install -m 700 "$workflow_script" "$staged_workflow_script"
-trusted_output="$tmp/trusted-ci-output"
-trusted_stdout=$(GITHUB_OUTPUT="$trusted_output" "$staged_workflow_script" check-ci main HEAD)
-[[ $trusted_stdout == trusted_ci=true ]]
-[[ $(<"$trusted_output") == trusted_ci=true ]]
+trusted_output="$tmp/trusted-paths-output"
+trusted_stdout=$(GITHUB_OUTPUT="$trusted_output" \
+	"$staged_workflow_script" check-trusted-paths main HEAD)
+expected_trusted=$'trusted_paths=true\nchanged_privileged_paths='
+[[ $trusted_stdout == "$expected_trusted" ]]
+[[ $(<"$trusted_output") == "$expected_trusted" ]]
 
-git switch -c changed-ci >/dev/null 2>&1
-printf 'run-name: changed\n' >>.github/workflows/ci.yml
-git add .github/workflows/ci.yml
-git commit -m "Change CI" >/dev/null
-changed_output="$tmp/changed-ci-output"
-changed_stdout=$(GITHUB_OUTPUT="$changed_output" "$staged_workflow_script" check-ci main HEAD)
-[[ $changed_stdout == trusted_ci=false ]]
-[[ $(<"$changed_output") == trusted_ci=false ]]
+privileged_paths=(
+	.github/workflows/ci.yml
+	.github/workflows/mirror-release.yml
+	bin/mirror-release.ts
+	bin/release-version.ts
+	.github/workflows/sync-upstream.yml
+	bin/upstream-sync-workflow.sh
+	bin/prepare-upstream-sync.sh
+)
+for index in "${!privileged_paths[@]}"; do
+	path=${privileged_paths[$index]}
+	git switch -C "changed-privileged-$index" main >/dev/null 2>&1
+	printf '\nchanged\n' >>"$path"
+	git add "$path"
+	git commit -m "Change privileged path $index" >/dev/null
+	changed_output="$tmp/changed-privileged-$index-output"
+	changed_stdout=$(GITHUB_OUTPUT="$changed_output" \
+		"$staged_workflow_script" check-trusted-paths main HEAD)
+	expected_changed=$(printf 'trusted_paths=false\nchanged_privileged_paths=%s' "$path")
+	[[ $changed_stdout == "$expected_changed" ]]
+	[[ $(<"$changed_output") == "$expected_changed" ]]
+done
+
+git switch -C changed-multiple-privileged main >/dev/null 2>&1
+printf '\nchanged\n' >>.github/workflows/mirror-release.yml
+printf '\nchanged\n' >>bin/release-version.ts
+git add .github/workflows/mirror-release.yml bin/release-version.ts
+git commit -m "Change multiple privileged paths" >/dev/null
+multiple_output="$tmp/changed-multiple-privileged-output"
+multiple_stdout=$(GITHUB_OUTPUT="$multiple_output" \
+	"$staged_workflow_script" check-trusted-paths main HEAD)
+expected_multiple=$'trusted_paths=false\nchanged_privileged_paths=.github/workflows/mirror-release.yml,bin/release-version.ts'
+[[ $multiple_stdout == "$expected_multiple" ]]
+[[ $(<"$multiple_output") == "$expected_multiple" ]]
 
 mock_bin="$tmp/mock-bin"
 mkdir -p "$mock_bin"

@@ -50,17 +50,18 @@ jobs:
         if: steps.prepare.outcome == 'failure' && steps.prepare.outputs.status != 'conflict'
         run: exit 1
 
-      - name: Check whether CI workflow is trusted
+      - name: Check whether privileged paths are trusted
         id: trust
         if: steps.prepare.outputs.status == 'merged'
         run: |
-          "$RUNNER_TEMP/upstream-sync-workflow.sh" check-ci main HEAD
+          "$RUNNER_TEMP/upstream-sync-workflow.sh" check-trusted-paths main HEAD
 
       - name: Push branch and open or update pull request
         if: steps.prepare.outputs.status == 'merged'
         env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          TRUSTED_CI: ${{ steps.trust.outputs.trusted_ci }}
+          CHANGED_PRIVILEGED_PATHS: ${{ steps.trust.outputs.changed_privileged_paths }}
+          TRUSTED_PATHS: ${{ steps.trust.outputs.trusted_paths }}
           UPSTREAM_SHA: ${{ steps.prepare.outputs.upstream_sha }}
         run: |
           gh auth setup-git
@@ -76,17 +77,18 @@ jobs:
           2. Review every \`active\` entry in \`FORK_PATCHES.md\` against its upstream issue.
           3. After merging this PR, mark incorporated patches \`absorbed\` with the upstream commit SHA; do not revert their historical code commits.
           EOF
-          if [[ $TRUSTED_CI == 'true' ]]; then
+          if [[ $TRUSTED_PATHS == 'true' ]]; then
             cat >> "$RUNNER_TEMP/upstream-sync-pr.md" <<'EOF'
 
           Review the diff and wait for `CI / Test` before merging.
           EOF
           else
-            cat >> "$RUNNER_TEMP/upstream-sync-pr.md" <<'EOF'
+            changed_privileged_paths=${CHANGED_PRIVILEGED_PATHS//,/, }
+            cat >> "$RUNNER_TEMP/upstream-sync-pr.md" <<EOF
 
           > [!WARNING]
-          > CI workflow changes require manual review; automatic CI dispatch is disabled.
-          > Review `.github/workflows/ci.yml` before running any checks from this branch.
+          > Privileged release-controller or CI changes require manual review; automatic CI dispatch is disabled.
+          > Changed privileged paths: $changed_privileged_paths
           EOF
           fi
           pr_number=$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number')
@@ -101,7 +103,7 @@ jobs:
           fi
 
       - name: Dispatch trusted CI
-        if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_ci == 'true'
+        if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_paths == 'true'
         run: gh workflow run ci.yml --ref "$SYNC_BRANCH"
 
       - name: Create or update conflict issue
@@ -142,10 +144,13 @@ jobs:
               --comment "Upstream synchronization no longer conflicts."
           fi
 
-      - name: Fail after opening a PR with changed CI
-        if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_ci == 'false'
+      - name: Fail after opening a PR with changed privileged paths
+        if: steps.prepare.outputs.status == 'merged' && steps.trust.outputs.trusted_paths == 'false'
+        env:
+          CHANGED_PRIVILEGED_PATHS: ${{ steps.trust.outputs.changed_privileged_paths }}
         run: |
-          printf 'The synchronization PR changes ci.yml; automatic CI dispatch was blocked.\n' >&2
+          printf 'The synchronization PR changes privileged paths (%s); automatic CI dispatch was blocked.\n' \
+            "$CHANGED_PRIVILEGED_PATHS" >&2
           exit 1
 
       - name: Fail after reporting a conflict

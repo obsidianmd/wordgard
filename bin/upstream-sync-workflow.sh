@@ -9,21 +9,38 @@ emit_output() {
 	fi
 }
 
-check_ci() {
-	local trusted_ref=$1 candidate_ref=$2
-	local workflow_path=.github/workflows/ci.yml
-	local trusted candidate trusted_ci=false
-	trusted=$(mktemp)
-	candidate=$(mktemp)
-	trap 'rm -f "$trusted" "$candidate"' RETURN
+check_trusted_paths() {
+	local trusted_ref=$1 candidate_ref=$2 directory trusted candidate path
+	local -a changed=()
+	local -ra privileged_paths=(
+		.github/workflows/ci.yml
+		.github/workflows/mirror-release.yml
+		bin/mirror-release.ts
+		bin/release-version.ts
+		.github/workflows/sync-upstream.yml
+		bin/upstream-sync-workflow.sh
+		bin/prepare-upstream-sync.sh
+	)
+	directory=$(mktemp -d)
+	trap 'rm -rf "$directory"' RETURN
 
-	if git show "$trusted_ref:$workflow_path" >"$trusted" 2>/dev/null &&
-		git show "$candidate_ref:$workflow_path" >"$candidate" 2>/dev/null &&
-		cmp -s "$trusted" "$candidate"; then
-		trusted_ci=true
+	for path in "${privileged_paths[@]}"; do
+		trusted="$directory/trusted"
+		candidate="$directory/candidate"
+		if ! git show "$trusted_ref:$path" >"$trusted" 2>/dev/null ||
+			! git show "$candidate_ref:$path" >"$candidate" 2>/dev/null ||
+			! cmp -s "$trusted" "$candidate"; then
+			changed+=("$path")
+		fi
+	done
+
+	local trusted_paths=true changed_paths=
+	if ((${#changed[@]})); then
+		trusted_paths=false
+		changed_paths=$(IFS=,; printf '%s' "${changed[*]}")
 	fi
-
-	emit_output trusted_ci "$trusted_ci"
+	emit_output trusted_paths "$trusted_paths"
+	emit_output changed_privileged_paths "$changed_paths"
 }
 
 find_issue() {
@@ -48,12 +65,12 @@ find_issue() {
 
 command=${1:-}
 case $command in
-check-ci)
+check-trusted-paths)
 	[[ $# -eq 3 ]] || {
-		printf 'Usage: %s check-ci TRUSTED_REF CANDIDATE_REF\n' "$0" >&2
+		printf 'Usage: %s check-trusted-paths TRUSTED_REF CANDIDATE_REF\n' "$0" >&2
 		exit 2
 	}
-	check_ci "$2" "$3"
+	check_trusted_paths "$2" "$3"
 	;;
 find-issue)
 	[[ $# -eq 3 ]] || {
@@ -63,7 +80,7 @@ find-issue)
 	find_issue "$2" "$3"
 	;;
 *)
-	printf 'Usage: %s {check-ci TRUSTED_REF CANDIDATE_REF|find-issue STATE EXACT_TITLE}\n' "$0" >&2
+	printf 'Usage: %s {check-trusted-paths TRUSTED_REF CANDIDATE_REF|find-issue STATE EXACT_TITLE}\n' "$0" >&2
 	exit 2
 	;;
 esac

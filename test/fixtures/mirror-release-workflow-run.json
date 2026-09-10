@@ -1,0 +1,16 @@
+{
+  "action": "completed",
+  "workflow_run": {
+    "id": 987654321,
+    "name": "CI",
+    "event": "push",
+    "status": "completed",
+    "conclusion": "success",
+    "head_branch": "main",
+    "head_sha": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "repository": {
+    "full_name": "obsidianmd/wordgard",
+    "default_branch": "main"
+  }
+}
