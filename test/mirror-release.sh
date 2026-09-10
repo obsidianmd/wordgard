@@ -305,7 +305,7 @@ if (method === "GET" && runMatch) {
   process.stdout.write(JSON.stringify({
     id,
     event: process.env.MOCK_CI_EVENT || "push",
-    path: process.env.MOCK_CI_PATH || ".github/workflows/ci.yml",
+    path: process.env.MOCK_CI_PATH || ".github/workflows/ci.yml@main",
     head_branch: process.env.MOCK_CI_BRANCH || "main",
     head_sha: process.env.MOCK_CI_SHA,
     conclusion: process.env.MOCK_CI_CONCLUSION || "success",
@@ -399,7 +399,7 @@ expect_failure() {
 }
 
 write_ci_run() {
-  local id=$1 sha=$2 workflow_path=${3:-.github/workflows/ci.yml}
+  local id=$1 sha=$2 workflow_path=${3:-.github/workflows/ci.yml@main}
   mkdir -p "$MOCK_GH_STATE/runs"
   node -e '
     const fs = require("node:fs")
@@ -740,11 +740,18 @@ create_fork_tag "$partial_tag" "$candidate_sha" "$message"
 write_release "$partial_tag"
 MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run URL does not match tag provenance' run_mirror "$candidate_sha" 200
 
-# Recovery revalidates that the provenance run belongs to the exact CI workflow.
+# Recovery revalidates that the provenance run belongs to the exact CI workflow and ref.
 activate_case recovery-wrong-workflow
-write_ci_run 227 "$candidate_sha" .github/workflows/other.yml
+write_ci_run 227 "$candidate_sha" .github/workflows/other.yml@main
 create_fork_tag "$partial_tag" "$candidate_sha" "$(valid_annotation "$partial_tag" "$candidate_sha" 227)"
-MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml' \
+MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' \
+  run_mirror "$candidate_sha" 200
+[[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
+
+activate_case recovery-wrong-workflow-ref
+write_ci_run 228 "$candidate_sha" .github/workflows/ci.yml@feature
+create_fork_tag "$partial_tag" "$candidate_sha" "$(valid_annotation "$partial_tag" "$candidate_sha" 228)"
+MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' \
   run_mirror "$candidate_sha" 200
 [[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 
@@ -1027,8 +1034,12 @@ export MOCK_CI_SHA="$candidate_sha" MOCK_CI_ID=299
 unset MOCK_PUSH_COLLISION_MODE MOCK_PUSH_COLLISION_STATE MOCK_COLLISION_WRONG_SHA
 
 MOCK_CI_EVENT=pull_request expect_failure 'CI run event must be push' run_mirror "$candidate_sha" 299
-MOCK_CI_PATH=.github/workflows/other.yml \
-  expect_failure 'CI run workflow path must be .github/workflows/ci.yml' run_mirror "$candidate_sha" 299
+MOCK_CI_PATH=.github/workflows/other.yml@main \
+  expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
+MOCK_CI_PATH=.github/workflows/ci.yml@feature \
+  expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
+MOCK_CI_PATH=.github/workflows/ci.yml \
+  expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
 MOCK_CI_BRANCH=feature expect_failure 'CI run head branch must be main' run_mirror "$candidate_sha" 299
 MOCK_CI_CONCLUSION=failure expect_failure 'CI run conclusion must be success' run_mirror "$candidate_sha" 299
 MOCK_CI_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
