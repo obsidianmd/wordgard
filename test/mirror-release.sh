@@ -459,7 +459,7 @@ fi
 # A stale local SemVer and local fork-shaped tag must not affect discovery.
 "$real_git" -C "$work" tag 8.0.0
 "$real_git" -C "$work" tag obsidian-v0.5.0-9
-write_ci_run 101 "$candidate_sha"
+write_ci_run 101 "$candidate_sha" .github/workflows/ci.yml
 
 output=$(run_mirror)
 node -e '
@@ -715,7 +715,7 @@ node -e '
 # One valid post-baseline tag without a Release resumes only that Release.
 activate_case recover-partial
 partial_tag=obsidian-v0.6.0-rc.1-2
-write_ci_run 201 "$candidate_sha"
+write_ci_run 201 "$candidate_sha" .github/workflows/ci.yml
 create_fork_tag "$partial_tag" "$candidate_sha" "$(valid_annotation "$partial_tag" "$candidate_sha" 201)"
 MOCK_CI_ID=202 MIRROR_TEST_DRY_RUN=0 run_mirror "$candidate_sha" 202 >/dev/null
 [[ -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
@@ -960,14 +960,14 @@ MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run URL does not match tag provenance' 
 activate_case recovery-wrong-workflow
 write_ci_run 227 "$candidate_sha" .github/workflows/other.yml@main
 create_fork_tag "$partial_tag" "$candidate_sha" "$(valid_annotation "$partial_tag" "$candidate_sha" 227)"
-MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' \
+MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml or .github/workflows/ci.yml@main' \
   run_mirror "$candidate_sha" 200
 [[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 
 activate_case recovery-wrong-workflow-ref
 write_ci_run 228 "$candidate_sha" .github/workflows/ci.yml@feature
 create_fork_tag "$partial_tag" "$candidate_sha" "$(valid_annotation "$partial_tag" "$candidate_sha" 228)"
-MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' \
+MIRROR_TEST_DRY_RUN=0 expect_failure 'CI run workflow path must be .github/workflows/ci.yml or .github/workflows/ci.yml@main' \
   run_mirror "$candidate_sha" 200
 [[ ! -f "$MOCK_GH_STATE/releases/$(node -p 'encodeURIComponent(process.argv[1])' "$partial_tag").json" ]]
 
@@ -1425,11 +1425,9 @@ unset MOCK_PUSH_ADVANCE_MAIN_SHA MOCK_PUSH_ADVANCE_MAIN_STATE
 
 MOCK_CI_EVENT=pull_request expect_failure 'CI run event must be push' run_mirror "$candidate_sha" 299
 MOCK_CI_PATH=.github/workflows/other.yml@main \
-  expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
+  expect_failure 'CI run workflow path must be .github/workflows/ci.yml or .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
 MOCK_CI_PATH=.github/workflows/ci.yml@feature \
-  expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
-MOCK_CI_PATH=.github/workflows/ci.yml \
-  expect_failure 'CI run workflow path must be .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
+  expect_failure 'CI run workflow path must be .github/workflows/ci.yml or .github/workflows/ci.yml@main' run_mirror "$candidate_sha" 299
 MOCK_CI_BRANCH=feature expect_failure 'CI run head branch must be main' run_mirror "$candidate_sha" 299
 MOCK_CI_CONCLUSION=failure expect_failure 'CI run conclusion must be success' run_mirror "$candidate_sha" 299
 MOCK_CI_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
