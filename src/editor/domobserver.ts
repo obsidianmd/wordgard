@@ -2,7 +2,7 @@ import {GardSelection} from "wordgard/state"
 import browser from "./browser"
 import {Wordgard} from "./editor"
 import {DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange, isEquivalentPosition} from "./dom"
-import {Tile, TileFlag, WidgetTile} from "./tile"
+import {Tile, WidgetTile} from "./tile"
 import {readDOMSelection, selectionFromTouch} from "./selection"
 import {addRange} from "./changes"
 
@@ -211,7 +211,7 @@ export class DOMObserver {
   findMutation(record: MutationRecord): [number, number] | null {
     let tile = this.wg.docTile.nearest(record.target)
     if (!tile || tile.ignoreMutations) return null
-    tile.flags |= TileFlag.Dirty
+    tile.markDirty()
     if (record.type == "attributes" || record.type == "characterData") {
       if (tile == this.wg.docTile) {
         return null

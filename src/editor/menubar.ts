@@ -137,7 +137,6 @@ class BarControl implements BarElement {
   get run() { return null }
 }
 
-
 class BarSubmenu implements BarElement {
   dom: HTMLElement
   button: HTMLButtonElement
@@ -308,7 +307,7 @@ class MenuBar {
     }
     if (update && selection.some(e => e.flags & F.Hidden)) {
       let reset = selection[0].flags & F.Hidden ? findChild(this.children, true) : selection[0]
-      this.setSelection(reset ? [reset] : [], this.dom.contains(document.activeElement))
+      this.setSelection(reset ? [reset] : [], this.dom.contains(this.wg.root.activeElement))
     }
   }
 
@@ -392,7 +391,7 @@ class MenuBar {
   }
 
   globalClick(event: MouseEvent) {
-    if (!this.dom.contains(event.target as HTMLElement)) {
+    if (!event.composedPath().includes(this.dom)) {
       this.dom.ownerDocument.removeEventListener("mousedown", this.globalClick)
       if (this.selection.length > 1) this.setSelection([this.selection[0]], false)
     }

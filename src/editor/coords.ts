@@ -12,12 +12,11 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
   let {offset, tile, pos: tilePos} = wg.docTile.resolve(pos, assoc)
 
   if (tile instanceof TextTile) {
-    let node = tile.dom, len = node.nodeValue!.length
-    if (!len) return new Coords(tile, singleRect(textRange(node as Text, 0, 0), 1))
-    let from = offset, to = offset, side: -1 | 1 = assoc < 0 && from || from == len ? 1 : -1
+    let from = offset, to = offset
+    let side: -1 | 1 = from == 0 ? -1 : from == tile.length ? 1 : -assoc as -1 | 1
     if (side < 0) to++
     else from--
-    return new Coords(tile, flattenV(singleRect(textRange(node as Text, from, to), side, true),
+    return new Coords(tile, flattenV(singleRect(textRange(tile.dom, from, to), side, true),
                                      (side < 0) == ltrAt(wg.state, pos, assoc)))
   }
 
@@ -45,6 +44,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
       for (let i = offset; i > 0; i--) {
         let before = tile.children[i - 1]
         if (before instanceof WidgetTile && !before.widget.type.inFlow) continue
+        if (before.dom.nodeName == "BR") break
         let rect = singleRect(before.dom, 1)
         if (rect.width || rect.height)
           return new Coords(before, horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1)))

@@ -394,6 +394,11 @@ describe("joinForward", () => {
   it("can join from the end of an inline node", () => {
     test(doc(p(sp("a", 0)), p("b")), joinForward, doc(p(sp("a", 0), "b")))
   })
+
+  it("can pull a block out of a multi-block list item", () => {
+    test(doc(p("a", 0), ul(li(p("b"), p("c")), li(p("d")))), joinForward,
+         doc(p("a", 0, "b"), ul(li(p("c")), li(p("d")))))
+  })
 })
 
 describe("deleteBackward", () => {

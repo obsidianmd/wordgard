@@ -404,16 +404,24 @@ describe("history", () => {
   })
 
   it("can handle extenders adding changes", () => {
-    let state = GardState.create({doc: doc(p("abc")), config: [
+    let state = GardState.create({doc: doc(p("ab")), config: [
       history(),
       Transaction.extender.of(tr => {
-        if (tr.newDoc.length != 5) return null
-        return {changes: {from: 4, insert: [Leaf.text(".")]}}
+        return !tr.startState.doc.eq(doc(p("abcd"))) ? null
+          : {changes: {from: 4, insert: [Leaf.text("...")]}}
       })
     ]})
+    state = state.update({
+      changes: {from: 3, insert: [Leaf.text("c")]},
+      annotations: history.isolate.of("after")
+    }).state
     state = state.update({changes: {from: 4, insert: [Leaf.text("d")]}}).state
     state = command(state, undo)
-    ist(state.doc, doc(p("abc.")), eq)
+    ist(state.doc, doc(p("abc...")), eq)
+    state = command(state, undo)
+    ist(state.doc, doc(p("ab...")), eq)
+    state = command(state, redo)
+    ist(state.doc, doc(p("abc...")), eq)
     state = command(state, redo)
     ist(state.doc, doc(p("abcd")), eq)
   })

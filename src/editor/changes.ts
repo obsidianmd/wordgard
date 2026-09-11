@@ -93,6 +93,10 @@ export function isEmpty(changes: Changes) {
 // Add the given range to a set of ranges, represented as a flat array
 // of number where each adjacent pairis a [from, to] range.
 export function addRange(ranges: number[], from: number, to: number) {
+  if (!ranges.length || ranges[ranges.length - 1] < from) {
+    ranges.push(from, to)
+    return
+  }
   let i = findAbove(ranges, 0, from) & ~1, j = i
   if (j && ranges[j - 1] == from) {
     j -= 2
@@ -104,3 +108,24 @@ export function addRange(ranges: number[], from: number, to: number) {
   }
   ranges.splice(j, i - j, from, to)
 }
+
+// Join multiple sets of ordered ranges into a single set
+export function joinRanges(ranges: number[][]) {
+  if (ranges.length == 1) return ranges[0]
+  let result: number[] = [], index = ranges.map(() => 0)
+  for (;;) {
+    let minI = -1, minFrom = -1
+    for (let i = 0; i < ranges.length; i++) {
+      let idx = index[i], set = ranges[i]
+      if (idx < set.length && (minI < 0 || set[idx] < minFrom)) {
+        minI = i
+        minFrom = set[idx]
+      }
+    }
+    if (minI < 0) return result
+    let idx = index[minI], set = ranges[minI]
+    addRange(result, set[idx], set[idx + 1])
+    index[minI] += 2
+  }
+}
+

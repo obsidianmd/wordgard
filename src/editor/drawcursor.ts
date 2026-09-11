@@ -106,7 +106,7 @@ function alignOffset(align: string, height: number) {
 
 function vertOverlap(a: DOMRect, b: DOMRect) {
   let margin = a.height / 3
-  return a.top < b.bottom + margin && a.bottom > b.top + margin
+  return a.top < b.bottom - margin && a.bottom > b.top + margin
 }
 
 const VertWidth = 30, VertGap = 5

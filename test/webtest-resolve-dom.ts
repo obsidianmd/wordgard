@@ -137,7 +137,7 @@ describe("DocTile.resolve", () => {
 describe("DocTile.posFromDOM", () => {
   it("locates basic positions", () => {
     let node = render(doc(p("ab", em("cd")), hr, blockquote(p("e"))))
-    let [p1, p2] = node.dom.querySelectorAll("p")
+    let [p1, p2] = Array.from(node.dom.querySelectorAll("p"))
     ist(node.posFromDOM(node.dom, 0), 0)
     ist(node.posFromDOM(node.dom, 1), 6)
     ist(node.posFromDOM(node.dom, 2), 7)

@@ -56,6 +56,8 @@ export {
   deleteWord,
   deleteToLineEnd,
   deleteLine,
+  killToLineEnd,
+  yankKilled
 } from "./commands"
 
 //- ### Block Manipulation Commands
@@ -93,6 +95,7 @@ export {
 export {
   liftEmptyBlock,
   splitTextblock,
+  enterInCode,
   deleteSelection,
   deleteBackward,
   deleteForward,
