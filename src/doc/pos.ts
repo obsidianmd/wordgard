@@ -262,7 +262,7 @@ export namespace Pos {
   }
 }
 
-const posCache = new Map<Plot.Doc, {top: Pos.Plot, cache: Pos[]}>(), cacheSize = 8
+const posCache = new WeakMap<Plot.Doc, {top: Pos.Plot, cache: Pos[]}>(), cacheSize = 8
 let cachePos = 0
 
 function cacheFor(doc: Plot.Doc) {

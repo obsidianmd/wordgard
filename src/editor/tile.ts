@@ -13,21 +13,21 @@ const LOG_update = false
 
 export const enum TileFlag {
   None = 0,
-  NodeInner = 1,
-  PlotContent = 2,
-  Spanning = 4,
-  Wrapper = 8,
-  Point = 16,
-  PointBefore = 32,
-  PointAfter = 64,
+  NodeInner = 0x1,
+  PlotContent = 0x2,
+  Spanning = 0x4,
+  Wrapper = 0x8,
+  Point = 0x10,
+  PointBefore = 0x20,
+  PointAfter = 0x40,
   PointSide = PointBefore | PointAfter,
-  Composition = 128,
-  Synced = 256, // Node has been synced. DOM content matches child list / text content, child array becomes read-only
-  Atom = 512, // Composite tile whose length isn't determined by child length
-  HasContent = 1024, // EltTile whose elt has a content hole
-  AfterContent = 2048, // Tiles that sit after their parent's content position
-  ContentNotLast = 4096, // EltTile that has children with AfterContent flag
-  Dirty = 8192, // DOM change observed in this node, must not reuse
+  Composition = 0x80,
+  Synced = 0x100, // Node has been synced. DOM content matches child list / text content, child array becomes read-only
+  Atom = 0x200, // Composite tile whose length isn't determined by child length
+  HasContent = 0x400, // EltTile whose elt has a content hole
+  AfterContent = 0x800, // Tiles that sit after their parent's content position
+  ContentNotLast = 0x1000, // EltTile that has children with AfterContent flag
+  Dirty = 0x2000, // DOM change observed in this node, must not reuse
 }
 
 const enum Orientation { Row, Col }
@@ -128,7 +128,7 @@ export abstract class Tile {
 
   toString() { return this.dom.nodeName + (this.children.length ? `(${this.children})` : "") }
 
-  sync() {}
+  abstract sync(): void
 
   connect() {
     for (let ch of this.children) ch.connect()
@@ -145,6 +145,13 @@ export abstract class Tile {
     return tile
   }
 
+  markDirty() {
+    if (!(this.flags & TileFlag.Dirty)) {
+      this.flags |= TileFlag.Dirty
+      this.parent?.markDirty()
+    }
+  }
+
   posAtCoords(state: GardState, x: number, y: number): CoordPos {
     let nodeTile = this.nearestNode()
     return nodeTile.posAtCoordsInner(nodeTile.posAtStart, state, x, y, null, Orientation.Col)
@@ -154,6 +161,13 @@ export abstract class Tile {
                             orientation: Orientation): CoordPos
 
   static get(node: DOMNode) { return node.wgTile }
+}
+
+function checkSync(tile: Tile) {
+  if ((tile.flags & TileFlag.Synced) && !(tile.flags & TileFlag.Dirty)) return false
+  tile.flags |= TileFlag.Synced
+  tile.flags &= ~TileFlag.Dirty
+  return true
 }
 
 export class CompositeTile extends Tile {
@@ -173,8 +187,7 @@ export class CompositeTile extends Tile {
   }
 
   sync() {
-    if (this.flags & TileFlag.Synced) return
-    this.flags |= TileFlag.Synced
+    if (!checkSync(this)) return
     let len = this.boundary * 2
     for (let ch of this.children) {
       ch.sync()
@@ -223,7 +236,7 @@ export class CompositeTile extends Tile {
   posAtCoordsRow(start: number, state: GardState, x: number, y: number, textblock: TextblockMap | null): CoordPos | null {
     let result = rowScan<Tile>(x, y, add => {
       for (let child of this.children) {
-        if (child.isPoint) continue
+        if (child instanceof WidgetTile && !child.widget.type.inFlow) continue
         let rects, {dom} = child
         if (dom.nodeType == 1) rects = (dom as Element).getClientRects()
         else if (dom.nodeType == 3) rects = textRange(dom as Text, 0, dom.nodeValue!.length).getClientRects()
@@ -234,6 +247,7 @@ export class CompositeTile extends Tile {
     if (!result) return null
     let {closest, rect} = result
     let pos = this.posBeforeChild(closest, start)
+    if (closest.dom.nodeName == "BR") return CoordPos.create(pos, 1)
     if (closest.node && closest.node.isPlot && closest.node.isInline) {
       if (x > rect.right) return CoordPos.create(pos + closest.length, -1)
       if (x < rect.left) return CoordPos.create(pos, 1)
@@ -351,9 +365,9 @@ export class DocTile extends CompositeTile {
       LOG_update && console.log("section", len, ins, "new=" + builder.new, "old=" + builder.old.tile, "@", builder.old.index)
       if (composition && posB == composition.fromB && ins >= 0) {
         LOG_update && console.log("(composition)")
-        if (!startCovered) builder.update(0, false)
+        if (!startCovered) builder.update(0, true)
         builder.composition(composition!, len)
-        if (ins && (startCovered = i == changes.length || changes[i + 1] == -1)) builder.update(0, false)
+        if (ins && (startCovered = i == changes.length || changes[i + 1] == -1)) builder.update(0, true)
       } else if (ins == -1) {
         builder.keep(len, !startCovered, i == changes.length)
         startCovered = false
@@ -592,6 +606,16 @@ export class EltTile extends CompositeTile {
   }
 }
 
+function setUneditable(dom: Element | Text) {
+  if (dom.nodeType != 1) {
+    let span = document.createElement("span")
+    span.appendChild(dom)
+    dom = span
+  }
+  if ((dom as HTMLElement).contentEditable == "inherit" && !/^(br|hr|img|input|wbr)$/i.test(dom.nodeName))
+    (dom as HTMLElement).contentEditable = "false"
+}
+
 export class WidgetTile extends Tile {
   constructor(
     readonly widget: Widget<any>,
@@ -602,8 +626,6 @@ export class WidgetTile extends Tile {
   ) {
     super(dom, flags)
     this.length = length
-    if (dom.nodeType == 1 && !widget.type.editable && (dom as HTMLElement).contentEditable == "inherit")
-      (dom as HTMLElement).contentEditable = "false"
   }
 
   get isNodeOuter() { return !!this._node }
@@ -613,6 +635,10 @@ export class WidgetTile extends Tile {
   get children() { return noChildren }
 
   ignoreEvent(event: Event) { return !this.widget.type.propagateEvent(event) }
+
+  get ignoreMutations() { return !this.widget.type.editable }
+
+  sync() { checkSync(this) }
 
   connect() {
     this.widget.type.connect?.(this.widget.value, this.dom)
@@ -624,7 +650,7 @@ export class WidgetTile extends Tile {
   }
 
   toString() {
-    return this.widget.type == Widget.EditableText || this.widget.type == Widget.Text
+    return this.widget.type == Widget.editableText || this.widget.type == Widget.text
       ? JSON.stringify(this.widget.value) : super.toString()
   }
 
@@ -654,8 +680,7 @@ export class TextTile extends Tile {
   get isAtom() { return true }
 
   sync() {
-    if (this.flags & TileFlag.Synced) return
-    this.flags |= TileFlag.Synced
+    if (!checkSync(this)) return
     if (this.dom.nodeValue != this.text) this.dom.nodeValue = this.text
   }
 
@@ -1046,7 +1071,9 @@ class ContentUpdate {
           : endOld && this.posB == end ? endOld.matchingWidget(widget, sideFlag, this.reused)
           : null
         if (!tile) {
-          tile = new WidgetTile(widget, null, TileFlag.Point | sideFlag, widget.render(this.wg))
+          let dom = widget.render(this.wg)
+          if (!widget.type.editable) setUneditable(dom)
+          tile = new WidgetTile(widget, null, TileFlag.Point | sideFlag, dom)
           if (widget.type.connect) this.toConnect.push(tile)
         }
         this.new.addChild(tile)
@@ -1077,11 +1104,14 @@ class ContentUpdate {
   }
 
   // node will be null when building inner structure
-  buildNodeShape(node: Node | null, shape: Decoration.Shape, reuse: Tile | readonly Tile[] | null, afterContent = TileFlag.None) {
+  buildNodeShape(node: Node | null, shape: Decoration.Shape, reuse: Tile | readonly Tile[] | null,
+                 inEditable = true, afterContent = TileFlag.None) {
     if (shape instanceof Elt) {
-      if (node && !shape.hasContent && Attributes.get(shape.attrs, "contenteditable") == null &&
-          !/^(br|hr|img|input|wbr)$/i.test(shape.tagName))
-        shape = Elt.create(shape.tagName, Attributes.merge(shape.attrs, ["contenteditable", "false"]), shape.children)
+      if (inEditable && !shape.hasContent) {
+        if (Attributes.get(shape.attrs, "contenteditable") == null && !/^(br|hr|img|input|wbr)$/i.test(shape.tagName))
+          shape = Elt.create(shape.tagName, Attributes.merge(shape.attrs, ["contenteditable", "false"]), shape.children)
+        inEditable = false
+      }
       let reusable, dom: Element | undefined, strict = true
       if (reusable = this.findReusableTile(shape, reuse, strict) || this.findReusableTile(shape, reuse, strict = false)) {
         this.reused.set(reusable, Reused.DOM)
@@ -1100,8 +1130,8 @@ class ContentUpdate {
           afterContentInner = TileFlag.AfterContent
           tile.flags |= TileFlag.PlotContent
         } else {
-          tile.addChild(this.buildNodeShape(null, typeof ch == "string" ? Widget.Text.of(ch) : ch,
-                                            reusable ? reusable.children : reuse, afterContentInner))
+          tile.addChild(this.buildNodeShape(null, typeof ch == "string" ? Widget.text.of(ch) : ch,
+                                            reusable ? reusable.children : reuse, inEditable, afterContentInner))
         }
       }
       return tile
@@ -1110,9 +1140,12 @@ class ContentUpdate {
       if (reusable = this.findReusableTile(shape, reuse, false)) {
         this.reused.set(reusable, Reused.DOM)
         dom = reusable.dom
+      } else {
+        dom = shape.render(this.wg)
       }
+      if (inEditable && !shape.type.editable) setUneditable(dom)
       let flags = (node ? TileFlag.Atom : TileFlag.Point | TileFlag.NodeInner) | afterContent
-      let tile = new WidgetTile(shape, node, flags, dom || shape.render(this.wg), node ? node.length : 0)
+      let tile = new WidgetTile(shape, node, flags, dom, node ? node.length : 0)
       if (shape.type.connect) this.toConnect.push(tile)
       return tile
     }
@@ -1133,7 +1166,7 @@ class ContentUpdate {
         if (next.isNodeInner || next instanceof WidgetTile && !next.widget.type.inFlow) {
         } else if (next instanceof WidgetTile && next.widget == Widget.br && parent == this.new) {
           hasHack = i
-        } else if (next.dom.nodeName == "BR" || next instanceof TextTile && /\n$/.test(next.text)) {
+        } else if (next.dom.nodeName == "BR") {
           break
         } else if (next instanceof CompositeTile && !next.isAtom) {
           parent = next

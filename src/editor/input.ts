@@ -11,7 +11,7 @@ import browser from "./browser"
 import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex} from "./dom"
 import {readClipboard, writeClipboard} from "./clipboard"
 import {eqArray, logException} from "./util"
-import {Tile, TextTile, CoordPos} from "./tile"
+import {Tile, TextTile, WidgetTile, CoordPos} from "./tile"
 import {KeyBinding} from "./keymap"
 
 const LOG_input = false
@@ -185,11 +185,12 @@ export class InputState {
   // order to interpret `beforeinput` event ranges and other DOM
   // positions when there are unflushed DOM changes.
   getDOMPos(node: Node, offset: number) {
+    if (!this.domChanges) return this.wg.docTile.posFromDOM(node, offset)
     if (node.nodeType == 1 && offset && node.childNodes[offset - 1].nodeType == 3) {
       node = node.childNodes[offset - 1]
       offset = node.nodeValue!.length
     }
-    let inText = node.nodeType == 3
+    let inText = node.nodeType == 3 && !this.wg.docTile.nearest(node)?.isPoint
     let ref = this.wg.docTile.posFromDOM(node, inText ? 0 : offset)
     let dir: -1 | 1 = -1
     let textBefore = node.parentNode && textNodeBefore(node.parentNode, domIndex(node))
@@ -207,6 +208,11 @@ export class InputState {
     while (this.domMappingIndex < pending.length)
       this._domMapping = this._domMapping.compose(pending[this.domMappingIndex++].changes)
     return this._domMapping
+  }
+
+  get unflushedSelection() {
+    let {pending} = this.wg.viewState
+    return pending.some(tr => tr.selection && !tr.isUserEvent("input"))
   }
 
   // Assign a position (in `state.doc`) to the given DOM position.
@@ -234,6 +240,7 @@ export class InputState {
     let command = inputTypeCommands[type]
     if ((type == "deleteContentBackward" || type == "deleteContentForward") && range &&
         range.from != range.to && // Always run the command for empty ranges
+        !this.unflushedSelection && // Or if there is a selection-setting pending transaction
         (sel.empty
           ? !isSingleChar(this.domDoc, data.domRange!.from, data.domRange!.to) ||
             sel.head != (type == "deleteContentBackward" ? range.to : range.from)
@@ -244,10 +251,11 @@ export class InputState {
       Command.dispatch(wg, command)
     } else if (type == "insertText") {
       let insert = event.data!.replace(/\r\n?|\n/g, " ")
-      Command.dispatch(wg, insertText, {from: range!.from, to: range!.to, insert, userEvent: "input.type"})
+      let {from, to} = this.unflushedSelection ? wg.state.selection : range!
+      Command.dispatch(wg, insertText, {from, to, insert, userEvent: "input.type"})
     } else if ((type == "insertReplacementText" || type == "insertFromYank")) {
       let read = readClipboard(wg.state, event.dataTransfer!, wg.state.sel.head, true)
-      let {from, to} = range!
+      let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       let sel = wg.state.selection, touchesSel = from <= sel.to && to >= sel.from
       if (read) wg.dispatch({
         changes: {from, to, insert: read.slice, fit: read.context},
@@ -311,9 +319,9 @@ export class InputState {
       return before || after
     } else {
       let tileBefore = Tile.get(before), tileAfter = Tile.get(after)
-      return !tileBefore || (tileBefore as any).text != before.nodeValue ? before
-        : !tileAfter || (tileAfter as any).text != after.nodeValue ? after
-        : prev == after ? after : before
+      if (tileBefore instanceof TextTile && tileBefore.text != before.nodeValue) return before
+      if (tileAfter instanceof TextTile && tileAfter.text != after.nodeValue) return after
+      return !tileBefore ? before : !tileAfter ? after : prev == after ? after : before
     }
   }
 
@@ -662,9 +670,9 @@ function compositionUpdate(wg: Wordgard, event: CompositionEvent) {
     if (!event.data) {
       let sel = wg.state.selection, rSel = wg.state.sel
       if (sel.empty && (sel instanceof GardSelection.Text && sel.marks || !rSel.head.inText && rSel.head.index) &&
-          !eqArray(rSel.head.nodeBefore?.tag.marks, rSel.activeMarks))
-        wrap = rSel.activeMarks
-      else if (sel.empty && inlineBoundNear(wg.state.sel.head))
+          !eqArray(rSel.head.nodeBefore?.tag.marks, rSel.activeMarks) ||
+          sel.empty && inlineBoundNear(wg.state.sel.head) ||
+          !inEditableDOM(wg, wg.observer.selectionRange.focusNode))
         wrap = rSel.activeMarks
     }
 
@@ -680,6 +688,12 @@ function inlineBoundNear(pos: Pos) {
   if (inText || !parent.node.inlineContent) return false
   return (index ? parent.node.content[index - 1].isPlot : parent.node.isInline) ||
     (index < parent.node.content.length ? parent.node.content[index].isPlot : parent.node.isInline)
+}
+
+function inEditableDOM(wg: Wordgard, node: DOMNode | null) {
+  if (!node) return false
+  let tile = wg.docTile.nearest(node)
+  return tile ? !(tile.isPoint || tile instanceof WidgetTile) : false
 }
 
 function isDeletionInputEvent(type: string) { return /^delete(Content|Word)/.test(type) }
@@ -826,11 +840,12 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
       data: event.data,
       domRange: null,
     }
-    let ranges = event.getTargetRanges()
+    let ranges = event.getTargetRanges(), editable = true
     if (ranges.length) {
-      let r = ranges[0]
-      data.domRange = {from: wg.inputState.getDOMPos(r.startContainer, r.startOffset),
-                       to: wg.inputState.getDOMPos(r.endContainer, r.endOffset)}
+      let r = ranges[0], empty = r.collapsed
+      let from = wg.inputState.getDOMPos(r.startContainer, r.startOffset)
+      data.domRange = {from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset)}
+      editable = inEditableDOM(wg, r.startContainer) && (empty || inEditableDOM(wg, r.endContainer))
     }
     wg.inputState.beforeInput(event, wg.inputState.pendingInputEvent = data)
     wg.scheduleFlush()
@@ -838,8 +853,8 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     // insertion and deletion to avoid confusing virtual keyboards and
     // Safari autocapitalize.
     let allow = type == "insertCompositionText" ||
-      (type == "insertText" || isDeletionInputEvent(type) &&
-       data.domRange && inlineContext(wg.inputState.domDoc, data.domRange))
+      editable && (type == "insertText" || isDeletionInputEvent(type) &&
+        data.domRange && inlineContext(wg.inputState.domDoc, data.domRange))
     LOG_input && console.log(`beforeinput ${data.inputType} ${data.domRange ? data.domRange.from + "-" + data.domRange.to : ""} ${
       data.data ? JSON.stringify(data.data) : ""}, allow=${allow}`)
     return !allow

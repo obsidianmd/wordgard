@@ -3,7 +3,8 @@ import {GardSelection, GardState, Transaction} from "wordgard/state"
 import {type Wordgard} from "wordgard/editor"
 import {Alignment, Direction, Emphasis, Strong, Underline} from "wordgard/types"
 import {Command} from "./command"
-import {joinForward, joinBackward, liftEmptyBlock, clearNonFitting, autoJoinBlocks,
+import {joinForward, joinBackward, liftEmptyBlock, enterInCode,
+        clearNonFitting, autoJoinBlocks,
         deleteSelection, deleteEmptyPlot, deleteForward, deleteBackward,
         splitTextblock, joinListItems, findUnwrappable, doUnwrapBlock,
         findWrappable, wrapBlockRange,
@@ -58,11 +59,13 @@ export const insertLineBreak: Command.Pure = ({state}) => {
 
 /// The command that handles enter presses. The default handler will,
 /// if the selection is not in an inline context, insert an empty
-/// default textblock in its position. Otherwise it first tries
-/// `liftEmptyBlock`, then `splitTextblock`.
+/// default textblock in its position. Otherwise it first tries {@link
+/// enterInCode}, then {@link liftEmptyBlock}, and finally {@link
+/// splitTextblock}.
 export const enter: Command.Pure = ({state}) => {
   if (state.readOnly) return false
   let {sel, doc} = state
+
   // When not in an inline context, try to create new empty textblock
   if (!sel.head.parent.node.inlineContent || !sel.anchor.parent.node.inlineContent) {
     let {from, to} = sel.replacementRange
@@ -79,7 +82,8 @@ export const enter: Command.Pure = ({state}) => {
       userEvent: "insert.textblock"
     }
   }
-  return liftEmptyBlock(state) || splitTextblock(state)
+
+  return enterInCode(state) || liftEmptyBlock(state) || splitTextblock(state)
 }
 
 /// Delete the selection, or the unit after or before the selection.
@@ -113,7 +117,7 @@ export const deleteWord: Command.Pure<"forward" | "backward"> = ({state}, dir) =
 export const deleteToLineEnd: Command<"forward" | "backward"> = (wg, dir) => {
   if (wg.state.readOnly) return false
   let tr = deleteSelection(wg.state), {selection} = wg.state
-  if (tr) return (wg.dispatch(tr), true)
+  if (tr) return tr
   if (!(selection instanceof GardSelection.Text)) return false
   let end = wg.moveToLineBoundary(selection, dir == "forward")
   if (!end || end.head == selection.head) return false
@@ -124,12 +128,85 @@ export const deleteToLineEnd: Command<"forward" | "backward"> = (wg, dir) => {
   }
 }
 
+const addToKillBuffer = Transaction.Effect.define<readonly Token[]>()
+
+const killBuffer = GardState.Field.define<{content: readonly Token[], active: boolean}>({
+  create() { return {content: [], active: false} },
+  update(value, tr) {
+    let add = tr.effects.find(e => e.is(addToKillBuffer))
+    if (add) return {content: value.active ? value.content.concat(add.value) : add.value, active: true}
+    return !value.active || tr.annotation(Transaction.remote) || !(tr.docChanged || tr.selection)
+      ? value : {content: value.content, active: false}
+  }
+})
+
+function killText(state: GardState, from: number, to: number) {
+  let add = addToKillBuffer.of(state.doc.slice(from, to).content)
+  return state.field(killBuffer, false) ? [add] : [GardState.appendConfig.of(killBuffer), add]
+}
+
+/// Command similar to forward `deleteToLineEnd` for macOS's Ctrl-k
+/// binding. If there's no content left on the line, this will delete
+/// the node (generally a line break) after the cursor of, if at end
+/// of textblock, join it to the next textblock.
+///
+/// Content deleted by this command is added to a ‘kill buffer’, and
+/// can be reinserted with {@link yankKilled}. Multiple kill actions
+/// in sequence will accumulate the deleted content in the buffer.
+/// Doing anything else and then running this command again will reset
+/// the buffer to hold only the newly killed content.
+export const killToLineEnd: Command = wg => {
+  let {state} = wg, {selection} = state
+  if (state.readOnly || !(selection instanceof GardSelection.Text)) return false
+  let end = wg.moveToLineBoundary(selection, true)
+  if (!end) return false
+  if (end.head > selection.head) return {
+    changes: {correct: {from: selection.head, to: end.head}},
+    scrollIntoView: true,
+    effects: killText(state, selection.head, end.head),
+    userEvent: "delete.forward"
+  }
+  let join = joinForward(state)
+  if (join) {
+    let joinEnd: number | undefined
+    state.doc.iterate(state.sel.head.textblockParent!.after, state.doc.length, (node, pos) => {
+      if (joinEnd != null) return false
+      if (node.isPlot && node.isTextblock) joinEnd = pos + 1
+    })
+    return Transaction.merge(state, join, {
+      effects: joinEnd == null ? undefined : killText(state, selection.head, joinEnd!)
+    })
+  }
+  let next = state.sel.head.nodeAfter
+  if (next) return {
+    changes: {correct: {from: selection.head, to: selection.head + next.length}},
+    scrollIntoView: true,
+    effects: killText(state, selection.head, selection.head + next.length),
+    userEvent: "delete.forward"
+  }
+  return false
+}
+
+/// Insert the content killed by the most recent {@link killToLineEnd}
+/// command (or sequence thereof) at the cursor position.
+export const yankKilled: Command = wg => {
+  let {state} = wg, buffer = wg.state.field(killBuffer, false)
+  if (!buffer || !buffer.content.length || !(state.selection instanceof GardSelection.Text)) return false
+  let {selection} = state
+  return {
+    changes: {correct: {from: selection.from, to: selection.to, insert: buffer.content}},
+    scrollIntoView: true,
+    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(selection.from, 1)),
+    userEvent: "input.yank"
+  }
+}
+
 /// Delete the selection, or if that is empty, the line around the
 /// cursor.
 export const deleteLine: Command = wg => {
   if (wg.state.readOnly) return false
   let tr = deleteSelection(wg.state), {selection} = wg.state
-  if (tr) return (wg.dispatch(tr), true)
+  if (tr) return tr
   if (!(selection instanceof GardSelection.Text)) return false
   let start = wg.moveToLineBoundary(selection, false), end = wg.moveToLineBoundary(selection, true)
   if (!start || !end || start.head >= end.head) return false
@@ -540,8 +617,11 @@ export const moveByPage: Command<{dir: "up" | "down", extend?: boolean}> = (wg, 
 export const moveToLineSide: Command<{
   dir: "left" | "right" | "forward" | "backward", extend?: boolean,
 }> = (wg, {dir, extend}) => {
-  let pos = wg.moveToLineBoundary(wg.state.selection, isForward(dir, wg.state))
-  return pos ? setSelection(extend ? extendSel(wg.state.selection, pos) : pos) : false
+  let forward = isForward(dir, wg.state), {selection} = wg.state
+  let pos = wg.moveToLineBoundary(selection, forward)
+  return pos ? setSelection(extend ? extendSel(selection, pos) : pos)
+    : extend || selection.empty ? false
+    : setSelection(GardSelection.near(wg.state, forward ? selection.to : selection.from))
 }
 
 /// Move to the start or end of the textblock that has the selection

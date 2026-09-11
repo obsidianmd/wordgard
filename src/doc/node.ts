@@ -462,6 +462,9 @@ export namespace Leaf {
   /// a given set of marks. The only leaf with a length that isn't
   /// always 1. Adjacent text leaves with the same marks are merged
   /// automatically.
+  ///
+  /// Text leaves must not include newline or return characters. Line
+  /// breaks in the document are modeled with {@link LineBreak} nodes.
   export const Text: Leaf.Type<string> = Leaf.Type.new<string>("Text", NodeFlag.Inline, {
     shape: {element: ""}
   })

@@ -5,7 +5,15 @@ import {phrases} from "wordgard/phrases"
 
 const enum BranchName { Done, Undone }
 
-const fromHistory = Transaction.Annotation.define<{side: BranchName, rest: Branch | null}>()
+const fromHistory = Transaction.Effect.define<{side: BranchName, startDoc: Plot.Doc, rest: Branch | null}>({
+  map(value, change) {
+    return {
+      side: value.side,
+      startDoc: change.apply(value.startDoc),
+      rest: !value.rest ? null : value.rest.addMapping(change, value.startDoc)
+    }
+  }
+})
 
 interface HistoryConfig {
   /// The minimum depth (amount of events) to store. Defaults to 100.
@@ -42,13 +50,13 @@ const historyField_ = GardState.Field.define({
   update(state: HistoryState, tr: Transaction): HistoryState {
     let config = tr.state.facet(historyConfig)
 
-    let fromHist = tr.annotation(fromHistory)
+    let fromHist = tr.effects.find(e => e.is(fromHistory))
     if (fromHist) {
-      let from = fromHist.side, event = eventFromTransaction(tr)
-      let other = from == BranchName.Done ? state.undone : state.done
+      let {side, rest} = fromHist.value, event = eventFromTransaction(tr)
+      let other = side == BranchName.Done ? state.undone : state.done
       if (event) other = new Branch(event.changes, event.effects, null, tr.startState.selection, other)
-      return new HistoryState(from == BranchName.Done ? fromHist.rest : other,
-                              from == BranchName.Done ? other : fromHist.rest)
+      return new HistoryState(side == BranchName.Done ? rest : other,
+                              side == BranchName.Done ? other : rest)
     }
 
     let isolate = tr.annotation(history.isolate)
@@ -339,8 +347,7 @@ class HistoryState {
     return {
       changes: branch.changes,
       selection: branch.startSelection,
-      effects: branch.effects,
-      annotations: fromHistory.of({side, rest: branch.next}),
+      effects: branch.effects.concat(fromHistory.of({side, startDoc: branch.changes.apply(state.doc), rest: branch.next})),
       userEvent: side == BranchName.Done ? "undo" : "redo",
       scrollIntoView: true
     }

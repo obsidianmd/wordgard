@@ -1,3 +1,41 @@
+## 0.5.2 (2026-09-06)
+
+### Bug fixes
+
+Fix a bug that could cause `PointSet.create` to emit an unsorted set.
+
+Fix inconsistent handling of empty update ranges, make sure text insert in the wrong place in the DOM gets moved.
+
+Fix an issue where if the editor is part of a form, clicking a menu button would submit the form.
+
+Fix an issue where missing table cells sitting before a rowspan cell sticking into the column from another column weren't fixed.
+
+Fix an issue that caused the `Pos` resolution cache to hold on to documents that should be garbage-collected.
+
+Disallow non-text content in code blocks.
+
+The `enter` command will now behave more reasonable in code blocks.
+
+Fix a bug where `posAtCoords` would return the wrong position for empty lines created with line break nodes.
+
+Fix a bug in normal cursor position finding that caused an infinite loop.
+
+Fix an issue where the undo history could get corrupted by transaction extenders (or corrections).
+
+Fix an issue where input could end up in the wrong place next to widgets rendered as plain text.
+
+Prevent native behavior for input events that would happen in ineditable parts of the DOM.
+
+Fix a bug that caused block-joining commands to create invalid change sets in some circumstances.
+
+### New features
+
+`RangeSet`/`PointSet.merge` now allow masking off part of the set.
+
+The `enterInCode` command helper function implements special Enter behavior in whitespace-preserving textblocks.
+
+Add support for macOS-style Ctrl-k and Ctrl-y keybindings through the new `killToLineEnd` and `yankKilled` commands.
+
 ## 0.5.1 (2026-08-22)
 
 ### Bug fixes

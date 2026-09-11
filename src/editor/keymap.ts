@@ -1,4 +1,5 @@
-import {Command, enter, deleteUnit, deleteWord, deleteToLineEnd, insertLineBreak, transposeChars,
+import {Command, enter, deleteUnit, deleteWord, deleteToLineEnd, killToLineEnd, yankKilled,
+        insertLineBreak, transposeChars,
         moveByUnit, moveToLineSide, moveToTextblockSide, moveToDocSide, moveByWord, moveByLine, moveByPage,
         selectAll, undo, redo} from "wordgard/command"
 import {GardState} from "wordgard/state"
@@ -160,11 +161,12 @@ export namespace KeyBinding {
   ///  - `Ctrl-e` to {@link command.moveToTextblockSide} (`{dir: "forward"}`)
   ///  - `Ctrl-d` to {@link command.deleteUnit} (`"forward"`)
   ///  - `Ctrl-h` to {@link command.deleteUnit} (`"backward"`)
-  ///  - `Ctrl-k` to {@link command.deleteToLineEnd} (`"forward"`)
+  ///  - `Ctrl-k` to {@link command.killToLineEnd}
   ///  - `Ctrl-Alt-h` to {@link command.deleteWord} (`"backward"`)
   ///  - `Ctrl-o` to {@link command.insertLineBreak}
   ///  - `Ctrl-t` to {@link command.transposeChars}
   ///  - `Ctrl-v` to {@link command.moveByPage} (`{dir: "down"}`)
+  ///  - `Ctrl-y` to {@link command.yankKilled}
   export const defaultKeymap: readonly KeyBinding[] = ([
     {key: "Enter", run: enter},
     {key: "Shift-Enter", run: insertLineBreak},
@@ -229,7 +231,8 @@ export namespace KeyBinding {
      shift: Command.bind(moveToTextblockSide, {dir: "forward", extend: true})},
     {mac: "Ctrl-d", run: Command.bind(deleteUnit, "forward")},
     {mac: "Ctrl-h", run: Command.bind(deleteUnit, "backward")},
-    {mac: "Ctrl-k", run: Command.bind(deleteToLineEnd, "forward")},
+    {mac: "Ctrl-k", run: killToLineEnd},
+    {mac: "Ctrl-y", run: yankKilled},
     {mac: "Ctrl-Alt-h", run: Command.bind(deleteWord, "backward")},
     {mac: "Ctrl-o", run: insertLineBreak},
     {mac: "Ctrl-t", run: transposeChars},

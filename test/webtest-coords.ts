@@ -7,7 +7,7 @@ import {tempEditor} from "./tempview.ts"
 import {basicSchema,basicBuilders, builder} from "./schema.ts"
 
 const schema = Schema.define(basicSchema.elements.concat(Table, TableRow, Cell))
-const {p, br, hr, blockquote, ul, li, strong, table, tr, td} = basicBuilders
+const {p, pre, br, hr, blockquote, ul, li, strong, table, tr, td} = basicBuilders
 const doc = builder(schema)
 
 const P = (wg: Wordgard, x: number, y: number) => {
@@ -97,6 +97,21 @@ describe("coordsAtPos", () => {
     let c2 = wg.coordsAtPos(2)
     ist(P(wg, c2.left - 1, c2.top + 2), "2>")
     ist(P(wg, c2.left + 1, c2.top + 2), "2<")
+  })
+
+  it("works around line breaks", () => {
+    let wg = tempEditor(doc(pre("a", br, br, "b", br)))
+    let c2 = wg.coordsAtPos(2, -1)
+    ist(wg.coordsAtPos(2, 1).top, c2.top)
+    let c3 = wg.coordsAtPos(3, -1)
+    ist(c3.top, c2.top, ">")
+    ist(P(wg, c3.left + 20, c3.top + 2), "3>")
+    ist(wg.coordsAtPos(3, 1).top, c3.top)
+    let c4 = wg.coordsAtPos(4, 1)
+    ist(c4.top, c3.top, ">")
+    let c6 = wg.coordsAtPos(6, -1)
+    ist(c6.top, c4.top, ">")
+    ist(P(wg, c6.left + 2, c6.top + 2), "6>")
   })
 })
 

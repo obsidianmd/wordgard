@@ -2,6 +2,15 @@ import {Elt, parse, Plot, Leaf, Node, Mark, ValidationError} from "wordgard/doc"
 
 const G = Node.Group
 
+/// A hard line break. Renders as `<br>` and has the {@link
+/// Node.Role.LineBreak | `LineBreak`} role.
+export const LineBreak = Leaf.define("LineBreak", {
+  inline: true,
+  role: Node.Role.LineBreak,
+  toText: () => "\n",
+  shape: {element: "br"}
+})
+
 /// A paragraph. Part of the {@link Node.Group.Content | `Content`}
 /// group, allowing inline content, rendered as `<p>`.
 export const Paragraph = Plot.define("Paragraph", {
@@ -38,7 +47,7 @@ export const Heading = Plot.Type.define("Heading", {
 /// group, with the {@link Node.Role.Code | `Code`} role. Rendered
 /// as `<pre>`.
 export const CodeBlock = Plot.define("CodeBlock", {
-  inlineContent: true,
+  inlineContent: [Leaf.Text, LineBreak],
   group: G.Content,
   role: Node.Role.Code,
   shape: {element: "pre"},
@@ -120,15 +129,6 @@ export const HorizontalRule = Leaf.define("HorizontalRule", {
   shape: {element: "hr"},
   toText: () => "---",
   selectable: true
-})
-
-/// A hard line break. Renders as `<br>` and has the {@link
-/// Node.Role.LineBreak | `LineBreak`} role.
-export const LineBreak = Leaf.define("LineBreak", {
-  inline: true,
-  role: Node.Role.LineBreak,
-  toText: () => "\n",
-  shape: {element: "br"}
 })
 
 /// Table cell plot. Allows inline content, and is in the {@link

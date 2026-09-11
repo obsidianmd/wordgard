@@ -27,6 +27,10 @@ describe("tables.correction", () => {
     test(doc(table(tr(td("a")), tr(td("b"), td("c")))),
          doc(table(tr(td(), td("a")), tr(td("b"), td("c"))))))
 
+  it("notices when the missing cells aren't at the end of the row", () =>
+    test(doc(table(tr(td("a"), rowspan(2, td("b"))), tr())),
+         doc(table(tr(td("a"), rowspan(2, td("b"))), tr(td())))))
+
   it("notices rowspans sticking out", () =>
     test(doc(table(tr(td("a"), rowspan(2, td("b")), td("c")))),
          doc(table(tr(td("a"), td("b"), td("c"))))))

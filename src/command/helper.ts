@@ -30,6 +30,45 @@ export function liftEmptyBlock(state: GardState): Transaction.Spec | false {
   return false
 }
 
+/// If the selection is in a {@link Plot.Spec.preserveWhitespace
+/// `preserveWhitespace`} textblock, replace the selected content with
+/// a {@link Schema.lineBreak line break}.
+///
+/// If the selection additionally is a cursor on an otherwise empty
+/// line after a blank line, split or trunctate (if at end) the parent
+/// textblock and create a blank default text block in place of the
+/// empty line.
+export function enterInCode(state: GardState): Transaction.Spec | false {
+  let {sel} = state, {head} = sel
+  if (!head.parent.node.inlineContent || !head.parent.node.type.preserveWhitespace ||
+      head.parent.start != sel.anchor.parent.start || !state.schema.lineBreak) return false
+
+  // If on empty line after two line breaks, split or truncate the block
+  if (sel.selection.empty && head.parent.parent && !head.inText && head.index > 1 &&
+      head.nodeBefore!.type == state.schema.lineBreak.type &&
+      (head.pos == head.parent.end || head.nodeAfter!.type == state.schema.lineBreak.type) &&
+      head.parent.node.content[head.index - 2].type == state.schema.lineBreak.type) {
+    let textblock = state.schema.defaultContentPlot(head.parent.parent.node.type)
+    if (textblock?.type.inlineContent) return {
+      changes: {
+        from: head.pos - 2, to: head.pos + 1,
+        insert: head.pos == head.parent.end ? [Plot.End, textblock, Plot.End]
+          : [Plot.End, textblock, Plot.End, head.parent.node.tag]
+      },
+      selection: GardSelection.cursor(head.pos, -1),
+      scrollIntoView: true,
+      userEvent: "split.textblock"
+    }
+  }
+
+  return {
+    changes: {from: sel.from.pos, to: sel.to.pos, insert: [state.schema.lineBreak]},
+    selection: GardSelection.cursor(sel.from.pos + 1, -1),
+    scrollIntoView: true,
+    userEvent: "input"
+  }
+}
+
 /// Split the textblock at the cursor position, if any. If the
 /// textblock is the first child of a list item, also split that item,
 /// unless `splitListItem` is false.
@@ -583,7 +622,7 @@ export function joinBlocks(before: Pos.Plot, after: Pos.Plot): ChangeSet.Spec {
     for (let i = dAfter - dBefore, level = after, atEnd = true; i > 0; i--, level = level.parent!) {
       if (level.nextSibling) atEnd = false
       if (atEnd) end++
-      else tokensAfter.push(level.parent!.node.tag)
+      else tokensAfter.unshift(level.parent!.node.tag)
     }
   }
   if (tokensAfter.length || end > posAfter)
