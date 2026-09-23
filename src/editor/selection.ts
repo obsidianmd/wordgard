@@ -62,7 +62,7 @@ export function rangeForClick(wg: Wordgard, pos: CoordPos, type: number): GardSe
   }
 }
 
-const Y_STEP = 5
+const Y_STEP = 2
 
 export function moveVertically(
   wg: Wordgard, start: GardSelection, forward: boolean,

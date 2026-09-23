@@ -79,7 +79,7 @@ const collabField = GardState.Field.define({
 
 /// Create an instance of the collaborative editing plugin.
 export function collab(config: collab.Config = {}): GardState.Extension {
-  return [collabField, collabConfig.of({generatedID: Math.floor(Math.random() * 1e9).toString(36), ...config})]
+  return [collabField, collabConfig.of({generatedID: Math.floor(Math.random() * 1e15).toString(36), ...config})]
 }
 
 export namespace collab {

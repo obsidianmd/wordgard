@@ -277,8 +277,11 @@ export class CompositeTile extends Tile {
 // closest element to the coordinates, prioritizing y closeness, and
 // organizing things that overlap vertically into rows.
 function rowScan<T>(
-  x: number, y: number, scan: (rect: (rect: DOMRect, value: T) => boolean) => void
+  x: number, y: number,
+  scan: (rect: (rect: DOMRect, value: T) => boolean) => void,
+  depth = 0
 ): {closest: T, rect: DOMRect} | null {
+  if (depth > 1) return null
   let closest: T | null = null, closestDx = 1e8, closestRect: DOMRect | null = null as any
   let above: DOMRect | null = null as any, below: DOMRect | null = null as any
   scan((rect: DOMRect, value: T) => {
@@ -300,14 +303,14 @@ function rowScan<T>(
 
   if (closestRect) {
     if (closestDx) {
-      if (above && above.bottom > closestRect.top) return rowScan(x, above.bottom - 1, scan)
-      if (below && below.top < closestRect.bottom) return rowScan(x, below.top + 1, scan)
+      if (above && above.bottom > closestRect.top) return rowScan(x, above.bottom - 1, scan, depth + 1)
+      if (below && below.top < closestRect.bottom) return rowScan(x, below.top + 1, scan, depth + 1)
     }
     return {closest: closest!, rect: closestRect}
   }
   let side: DOMRect | null = above && (!below || (y - above.bottom < below.top - y)) ? above : below
   if (!side) return null
-  return rowScan(x, (side.top + side.bottom) / 2, scan)
+  return rowScan(x, (side.top + side.bottom) / 2, scan, depth + 1)
 }
 
 export function ltrAt(state: GardState, pos: number, assoc: -1 | 1, textblock?: TextblockMap | null) {
