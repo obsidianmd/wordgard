@@ -1,8 +1,8 @@
 import {GardState, GardSelection} from "wordgard/state"
 import {Mark, Pos, Plot, Leaf, Node, ChangeSet, Schema, Elt, Attributes} from "wordgard/doc"
+import {RangeSet, PointSet, findAbove} from "wordgard/set"
 import {addSection, Changes, addUpdated, addRange, joinRanges} from "./changes"
 import {type Wordgard} from "./editor"
-import {findAbove} from "./util"
 
 /// A widget describes a piece of DOM content that can be used to
 /// render a node, a part of a node, or an extra element added via a
@@ -355,6 +355,18 @@ export namespace Decoration {
     static source = GardState.Facet.define<(state: GardState) => PointSet<Point>>({
       combine: sources => sources.concat(nodeSelection)
     })
+
+    /// Create a {@link PointSet} from an array or source function of
+    /// point decorations.
+    static set(source: PointSet.Source<Point>): Point.Set { return PointSet.create<Point>(source) }
+
+    /// The empty set of point decorations.
+    static none: Point.Set = PointSet.empty
+  }
+
+  export namespace Point {
+    /// The type used for sets of point decorations.
+    export type Set = PointSet<Point>
   }
 
   /// Range decorations apply to a document range. They are stored in
@@ -398,7 +410,14 @@ export namespace Decoration {
     /// source function will be called on every update. Generating big
     /// range sets on the fly will not perform well, so you'll often
     /// want to store these in a state field.
-    static source = GardState.Facet.define<(state: GardState) => RangeSet<Range>>()
+    static source = GardState.Facet.define<(state: GardState) => Range.Set>()
+
+    /// Create a {@link RangeSet} from an array or source function of
+    /// range decorations.
+    static set(source: RangeSet.Source<Range>): Range.Set { return RangeSet.create<Range>(source) }
+
+    /// The empty set of range decorations.
+    static none: Range.Set = RangeSet.empty
   }
 
   export namespace Range {
@@ -428,6 +447,9 @@ export namespace Decoration {
       /// node. Defaults to true.
       spanning?: boolean
     }
+
+    /// The type used for sets of point decorations.
+    export type Set = RangeSet<Range>
   }
 }
 
@@ -613,420 +635,14 @@ function nodeSelection(state: GardState) {
 
 const none: readonly any[] = []
 
-/// Data structure used to store sets of points and then track them
-/// across document changes. Mostly used for {@link Decoration.Point
-/// point decorations}, but can also track your own types, if you make
-/// sure they implement the {@link PointSet.Value} interface.
-export class PointSet<T extends PointSet.Value = PointSet.Value> {
-  private constructor(
-    /// The values in this set.
-    readonly values: readonly T[],
-    /// The positions of the values in this set.
-    readonly positions: readonly number[],
-  ) {}
-
-  /// The number of points in this set.
-  get length() { return this.positions.length }
-
-  /// @internal
-  get size() { return this.positions.length ? this.positions[this.positions.length - 1] : 0 }
-
-  /// Adjust the points for a set of document changes. Returns a new
-  /// set with the adjusted points. May delete points when the content
-  /// around them was deleted.
-  map(changes: ChangeSet, start = 0) {
-    if (changes.empty) return this
-    let positions = this.positions.slice()
-    let pos = start, i = 0, startB = start && changes.mapPos(start, -1)
-    let deleted: number[] = [], deletions = 0
-    changes.iterGaps((fromA, toA, fromB, _toB, last) => {
-      let off = fromB - fromA, end = last ? toA : toA - 1
-      if (end > pos) {
-        let nextI = findAbove(positions, i, end - start)
-        if (off) for (; i < nextI; i++) positions[i] += off
-        else i = nextI
-        pos = end
-      }
-    }, (_fromA, toA) => {
-      let nextI = findAbove(positions, i, toA + 1 + start)
-      for (; i < nextI; i++) {
-        let mapped = changes.mapPos(positions[i] + start, this.values[i].side < 0 ? -1 : 1, this.values[i].trackMode)
-        if (mapped == null) { addDel(deleted, i); deletions++ }
-        else positions[i] = mapped - startB
-      }
-      pos = toA + 1
-    })
-    if (!deletions) return new PointSet<T>(this.values, positions)
-    return new PointSet<T>(applyDel(deleted, deletions, this.values), applyDel(deleted, deletions, positions))
-  }
-
-  /// Returns the union of this set and the given set. If
-  /// `maskFrom`/`maskTo` are given, drop any points from `this`
-  /// between or at those positions.
-  merge(other: PointSet<T>, maskFrom?: number, maskTo = maskFrom) {
-    if (!this.length) return other
-    if (!other.length && maskFrom == null) return this
-    let posA = this.positions, posB = other.positions
-    let pos: number[] = new Array((maskFrom == null ? posA.length : 0) + posB.length), values: T[] = new Array(pos.length)
-    for (let i = 0, a = 0, b = 0;;) {
-      if (a < posA.length && (b == posB.length || (posA[a] - posB[b] || this.values[a].side - other.values[b].side) < 0)) {
-        if (maskFrom == null || maskFrom > posA[a] || maskTo! < posA[a]) {
-          pos[i] = posA[a]
-          values[i++] = this.values[a]
-        }
-        a++
-      } else if (b < posB.length) {
-        pos[i] = posB[b]
-        values[i++] = other.values[b++]
-      } else {
-        return new PointSet<T>(values, pos)
-      }
-    }
-  }
-
-  /// @internal
-  compareRange(fromA: number, b: PointSet<T>, fromB: number, len: number, change: (pos: number, val: T) => void) {
-    let a = this, endB = fromB + len
-    if (a != b || fromA != fromB) {
-      let iA = findAbove(a.positions, 0, fromA - 1), lA = a.positions.length
-      let iB = findAbove(b.positions, 0, fromB - 1), lB = b.positions.length
-      let off = fromB - fromA
-      let sameVal = a.values == b.values
-      for (;;) {
-        let nextA = iA < lA ? a.positions[iA] + off : 1e9
-        let nextB = iB < lB ? b.positions[iB] : 1e9
-        let next = Math.min(nextA, nextB)
-        if (next > endB) break
-        if (nextA == nextB) {
-          if (!sameVal && !a.values[iA].eq(b.values[iB])) change(next, a.values[iA])
-          iA++
-          iB++
-        } else if (nextA < nextB) {
-          change(nextA, a.values[iA++])
-        } else {
-          change(nextB, b.values[iB++])
-        }
-      }
-    }
-  }
-
-  /// @internal
-  iter(): PointIterator<T> {
-    return new PointIterator<T>(this)
-  }
-
-  /// Get the value at the given position, if any. If there's multiple
-  /// values at that position, the one with the lowest side is
-  /// returned.
-  at(pos: number): T | undefined {
-    let index = findAbove(this.positions, 0, pos - 1)
-    return index < this.positions.length && this.positions[index] == pos ? this.values[index] : undefined
-  }
-
-  /// Create a point set from an iterable of `[position, value]`
-  /// tuples, or a function that calls its argument for every point to
-  /// add.
-  static create<T extends PointSet.Value>(
-    source: Iterable<[number, T]> | ((add: (pos: number, value: T) => void) => void)
-  ): PointSet<T> {
-    if (typeof source != "function") {
-      let array = source
-      source = add => { for (let [pos, value] of array) add(pos, value) }
-    }
-    let positions: number[] = [], values: T[] = [], curPos = -1, curVal: T | undefined
-    source((pos: number, value: T) => {
-      if (curPos > pos || curPos == pos && curVal!.side > value.side) {
-        for (let i = positions.length;;) {
-          positions[i] = positions[i - 1]
-          values[i] = values[i - 1]
-          --i
-          if (!i || (positions[i - 1] - pos || values[i - 1].side - value.side) <= 0) {
-            positions[i] = pos
-            values[i] = value
-            break
-          }
-        }
-      } else {
-        positions.push(pos)
-        values.push(value)
-        curPos = pos
-        curVal = value
-      }
-    })
-    return new PointSet(values, positions)
-  }
-
-  /// The empty point set.
-  static empty: PointSet<any> = new PointSet(none, none)
-}
-
-export namespace PointSet {
-  /// Objects stored in a point set must conform to this interface.
-  export interface Value {
-    /// The side of the point. Used to provide a sorting of points at
-    /// the same position
-    side: number
-    /// Specifies whether the point should be deleted when content
-    /// next to it is deleted. See {@link ChangeSet.mapPos}.
-    trackMode: ChangeSet.TrackMode | undefined
-    /// Method to compare this value to another.
-    eq(other: PointSet.Value): boolean
-  }
-}
-
-interface SetIterator<T> {
-  value: T | null
-  from: number
-  to: number
-  next(): void
-  goto(pos: number, inclusive: boolean): void
-}
-
-class PointIterator<T extends PointSet.Value> implements SetIterator<T> {
-  declare value: T | null
-  declare from: number
-  declare i: number
-
-  constructor(readonly set: PointSet<T>) {
-    this.fill(0)
-  }
-
-  get to() { return this.from }
-
-  private fill(i: number) {
-    this.i = i
-    if (i < this.set.positions.length) {
-      this.from = this.set.positions[i]
-      this.value = this.set.values[i]
-    } else {
-      this.from = 1e8
-      this.value = null
-    }
-  }
-
-  next() {
-    if (this.value) this.fill(this.i + 1)
-  }
-
-  get side() {
-    return this.value ? this.value!.side : 1
-  }
-
-  goto(pos: number, inclusive: boolean) {
-    let i = findAbove(this.set.positions, 0, pos - 1)
-    if (!inclusive) {
-      while (i < this.set.values.length && this.set.values[i].side < Side.After) i++
-    }
-    this.fill(i)
-  }
-}
-
-function addDel(deleted: number[], i: number) {
-  let last = deleted.length - 1
-  if (last >= 0 && deleted[last] == i) deleted[last] = i + 1
-  else deleted.push(i, i + 1)
-}
-
-function applyDel<T>(deleted: number[], deletions: number, array: readonly T[]): T[] {
-  let result = new Array(array.length - deletions)
-  for (let iA = 0, iR = 0, iD = 0;;) {
-    let last = iD == deleted.length, from = last ? array.length : deleted[iD++]
-    while (iA < from) result[iR++] = array[iA++]
-    if (last) return result
-    let to = deleted[iD++]
-    iA += to - from
-  }
-}
-
-export type DecoSet = {points: Map<(state: GardState) => PointSet<Decoration.Point>, PointSet<Decoration.Point>>,
-                       ranges: Map<(state: GardState) => RangeSet<Decoration.Range>, RangeSet<Decoration.Range>>}
+export type DecoSet = {points: Map<(state: GardState) => Decoration.Point.Set, Decoration.Point.Set>,
+                       ranges: Map<(state: GardState) => Decoration.Range.Set, Decoration.Range.Set>}
 
 export function getDecoSet(state: GardState) {
   let set: DecoSet = {points: new Map, ranges: new Map}
   for (let src of state.facet(Decoration.Point.source)) set.points.set(src, src(state))
   for (let src of state.facet(Decoration.Range.source)) set.ranges.set(src, src(state))
   return set
-}
-
-/// Data structure that stores sets of ranges, for use with {@link
-/// Decoration.Range range decorations} or other data types
-/// implementing {@link RangeSet.Value}.
-export class RangeSet<T extends RangeSet.Value = RangeSet.Value> {
-  private constructor(
-    /// The value associated with the ranges in the set.
-    readonly values: readonly T[],
-    /// The start positions of the ranges in this set.
-    readonly from: readonly number[],
-    /// The end positions of the ranges.
-    readonly to: readonly number[],
-  ) {}
-
-  /// The number of ranges stored in this set.
-  get length() { return this.from.length }
-
-  /// @internal
-  get size() { return this.to.length ? this.to[this.to.length - 1] : 0 }
-
-  /// Adjust the positions of the ranges for the given change set.
-  /// Returns a set with the updated ranges.
-  map(changes: ChangeSet, start = 0) {
-    if (changes.empty || !this.length) return this
-    let from = this.from.slice(), to = this.to.slice()
-    let pos = start, i = 0, startB = start && changes.mapPos(start, -1)
-    let deleted: number[] = [], deletions = 0
-    changes.iterGaps((fromA, toA, fromB, _toB, last) => {
-      let off = fromB - fromA, end = last ? toA : toA - 1
-      if (end > pos) {
-        let nextI = findAbove(to, i, end - start)
-        if (off) for (; i < nextI; i++) { from[i] += off; to[i] += off }
-        else i = nextI
-        pos = end
-      }
-    }, (_fromA, toA) => {
-      let nextI = findAbove(from, i, toA - start)
-      for (; i < nextI; i++) {
-        let value = this.values[i]
-        let mappedFrom = changes.mapPos(from[i] + start, value.inclusiveStart ? -1 : 1)
-        let mappedTo = changes.mapPos(to[i] + start, value.inclusiveEnd ? 1 : -1)
-        if (mappedFrom >= mappedTo) { addDel(deleted, i); deletions++ }
-        else { from[i] = mappedFrom - startB; to[i] = mappedTo - startB }
-      }
-      pos = toA + 1
-    })
-    if (!deletions) return new RangeSet<T>(this.values, from, to)
-    return new RangeSet<T>(applyDel(deleted, deletions, this.values),
-                           applyDel(deleted, deletions, from),
-                           applyDel(deleted, deletions, to))
-  }
-
-  /// Merge this set with another set. If `maskFrom`/`maskTo` are
-  /// given, any ranges overlapping the masked range in `this` are
-  /// not included in the merged set.
-  merge(other: RangeSet<T>, maskFrom?: number, maskTo = maskFrom) {
-    if (!this.length) return other
-    if (!other.length && maskFrom == null) return this
-    let fromA = this.from, fromB = other.from
-    let from: number[] = new Array((maskFrom == null ? fromA.length : 0) + fromB.length)
-    let to: number[] = new Array(from.length), values: T[] = new Array(from.length)
-    for (let i = 0, a = 0, b = 0, at = 0;;) {
-      if (a < fromA.length && (b == fromB.length || fromA[a] < fromB[b])) {
-        if (maskFrom == null || maskFrom >= this.to[a] || maskTo! <= this.from[a]) {
-          if ((from[i] = fromA[a]) < at) throw new Error("Overlapping ranges")
-          at = to[i] = this.to[a]
-          values[i++] = this.values[a]
-        }
-        a++
-      } else if (b < fromB.length) {
-        if ((from[i] = fromB[b]) < at) throw new Error("Overlapping ranges")
-        at = to[i] = other.to[b]
-        values[i++] = other.values[b++]
-      } else {
-        return new RangeSet<T>(values, from, to)
-      }
-    }
-  }
-
-  /// @internal
-  iter(): RangeIterator<T> {
-    return new RangeIterator<T>(this)
-  }
-
-  /// @internal
-  compareRange(fromA: number, b: RangeSet<T>, fromB: number, len: number, change: (from: number, to: number) => void) {
-    let a = this, toB = fromB + len
-    if (a != b || fromA != fromB) {
-      let iA = findAbove(a.to, 0, fromA - 1), lA = a.from.length
-      let iB = findAbove(b.to, 0, fromB - 1), lB = b.from.length
-      let off = fromB - fromA
-      let sameVals = a.values == b.values
-      for (;;) {
-        let [startA, endA] = iA < lA ? [a.from[iA] + off, a.to[iA] + off] : [1e9, 1e9]
-        let [startB, endB] = iB < lB ? [b.from[iB], b.to[iB]] : [1e9, 1e9]
-        let start = Math.min(startA, startB)
-        if (start > toB) break
-        if (startA == startB) {
-          if (endA != endB || !sameVals && !a.values[iA].eq(b.values[iB])) change(start, Math.max(endA, endB))
-          iA++
-          iB++
-        } else if (startA < startB) {
-          change(startA, endA)
-          iA++
-        } else {
-          change(startB, endB)
-          iB++
-        }
-      }
-    }
-  }
-
-  /// Create a range set from an iterable of `[from, to, value]`
-  /// tuples, or a function that calls its argument for every range to
-  /// add.
-  static create<T extends RangeSet.Value>(
-    source: Iterable<[number, number, T]> | ((add: (from: number, to: number, value: T) => void) => void)
-  ): RangeSet<T> {
-    if (typeof source != "function") {
-      let array = source
-      source = add => { for (let [from, to, value] of array) add(from, to, value) }
-    }
-    let from: number[] = [], to: number[] = [], values: T[] = [], curPos = -1
-    source((f, t, value) => {
-      if (f >= t) throw new Error("Ranges cannot be empty")
-      if (f < curPos) throw new Error("Ranges must be added in order and cannot overlap")
-      from.push(f)
-      to.push(t)
-      curPos = t
-      values.push(value)
-    })
-    return new RangeSet<T>(values, from, to)
-  }
-
-  /// The empty range set.
-  static empty: RangeSet<any> = new RangeSet(none, none, none)
-}
-
-export namespace RangeSet {
-  /// Values stored in a range set must conform to this interface.
-  export interface Value {
-    /// Whether content inserted at the start of this value's range is
-    /// included in the range.
-    inclusiveStart: boolean
-    /// Whether content inserted at the end is included.
-    inclusiveEnd: boolean
-    /// Compare this value to another.
-    eq(other: Value): boolean
-  }
-}
-
-class RangeIterator<T extends RangeSet.Value> implements SetIterator<T> {
-  declare value: T | null
-  declare from: number
-  declare to: number
-  declare i: number
-
-  constructor(readonly set: RangeSet<T>) {
-    this.fill(0)
-  }
-
-  fill(i: number) {
-    this.i = i
-    if (i < this.set.from.length) {
-      this.from = this.set.from[i]
-      this.to = this.set.to[i]
-      this.value = this.set.values[i]
-    } else {
-      this.from = this.to = 1e8
-      this.value = null
-    }
-  }
-
-  next() {
-    if (this.value) this.fill(this.i + 1)
-  }
-
-  goto(pos: number) {
-    this.fill(findAbove(this.set.to, 0, pos))
-  }
 }
 
 function compareDecoSet<T>(setA: Map<(state: GardState) => T, T>, setB: Map<(state: GardState) => T, T>,
@@ -1139,37 +755,40 @@ export interface DecoWalker {
   widget(widget: Widget, side: number): void
 }
 
-class HeapIterator<R extends RangeSet.Value, P extends PointSet.Value> {
-  active: RangeIterator<R>[] = []
+class SpanIterator<R extends RangeSet.Value, P extends PointSet.Value> { // FIXME name
+  active: R[] = []
+  activeEnd: number[] = []
   from: number
   to: number
-  point: PointIterator<P> | null = null
+  point: P | null = null
+  pointSource: PointSet<P> | null = null
   done = false
 
-  constructor(readonly rangeHeap: RangeIterator<R>[],
-              readonly pointHeap: PointIterator<P>[],
+  constructor(readonly ranges: RangeSet.Cursor<R>,
+              readonly points: PointSet.Cursor<P>,
               start: number,
               readonly end: number) {
-    for (let i = rangeHeap.length >> 1; i >= 0; i--) bubble(rangeHeap, i, cmpRangeFrom)
-    for (let i = pointHeap.length >> 1; i >= 0; i--) bubble(pointHeap, i, cmpPoint)
     this.from = this.to = start
   }
 
   next() {
     if (this.done) return this
-    if (this.point) {
-      this.point.next()
-      if (!this.point.value) popHeap(this.pointHeap, cmpPoint)
-      else bubble(this.pointHeap, 0, cmpPoint)
-      this.point = null
-    }
-    let {rangeHeap, pointHeap, active} = this
+    if (this.point) this.point = null
+    let {ranges, points, active, activeEnd} = this
     while (true) {
-      let [startPos, startSide] = rangeHeap.length
-        ? [rangeHeap[0].from, rangeHeap[0].value!.inclusiveStart ? -1 : 1]
+      let [startPos, startSide] = ranges.value
+        ? [ranges.from, ranges.value.inclusiveStart ? -1 : 1]
         : [1e9, 0]
-      let [endPos, endSide] = active.length ? [active[0].to, active[0].value!.inclusiveEnd ? 1 : -1] : [1e9, 0]
-      let {from: pointPos, side: pointSide} = pointHeap.length ? pointHeap[0] : {from: 1e9, side: 1}
+      let endPos = 1e9, endSide = 0, nextActive = -1
+      for (let i = 0; i < active.length; i++) {
+        let pos = activeEnd[i], side = active[i].inclusiveEnd ? 1 : -1
+        if ((pos - endPos || side - endSide) < 0) {
+          endPos = pos
+          endSide = side
+          nextActive = i
+        }
+      }
+      let {pos: pointPos, side: pointSide} = points.value ? points : {pos: 1e9, side: 1}
       let nextPos = Math.min(startPos, endPos, pointPos)
       if (this.to == this.end && nextPos > this.to) {
         this.done = true
@@ -1179,74 +798,22 @@ class HeapIterator<R extends RangeSet.Value, P extends PointSet.Value> {
         this.to = Math.min(this.end, nextPos)
         break
       } else if (pointPos == nextPos && (startPos > pointPos || pointSide < 0) && (endPos > pointPos || pointSide < 0)) {
-        this.point = this.pointHeap[0]
-        this.from = this.to = pointPos
+        this.point = this.points.value!
+        this.pointSource = this.points.set
+        this.from = this.to = this.points.pos
+        this.points.next()
         break
       } else if ((startPos - endPos || startSide - endSide) < 0) {
-        let first = rangeHeap[0]
-        sink(active, active.push(first) - 1, cmpRangeTo)
-        popHeap(rangeHeap, cmpRangeFrom)
+        active.push(this.ranges.value!)
+        activeEnd.push(this.ranges.to)
+        this.ranges.next()
       } else {
-        let first = active[0]
-        first.next()
-        if (first.value)
-          sink(rangeHeap, rangeHeap.push(first) - 1, cmpRangeFrom)
-        popHeap(active, cmpRangeTo)
+        active.splice(nextActive, 1)
+        activeEnd.splice(nextActive, 1)
       }
     }
     return this
   }
-}
-
-function bubble<T>(heap: T[], index: number, cmp: (a: T, b: T) => number) {
-  for (let cur = heap[index];;) {
-    let childIndex = (index << 1) + 1
-    if (childIndex >= heap.length) break
-    let child = heap[childIndex]
-    if (childIndex + 1 < heap.length && cmp(child, heap[childIndex + 1]) >= 0) {
-      child = heap[childIndex + 1]
-      childIndex++
-    }
-    if (cmp(cur, child) < 0) break
-    heap[childIndex] = cur
-    heap[index] = child
-    index = childIndex
-  }
-}
-
-function sink<T>(heap: T[], index: number, cmp: (a: T, b: T) => number) {
-  let elt = heap[index]
-  while (index > 0) {
-    let parent = (index - 1) >> 1
-    if (cmp(heap[parent], elt) < 0) break
-    heap[index] = heap[parent]
-    heap[parent] = elt
-    index = parent
-  }
-}
-
-function popHeap<T>(heap: T[], cmp: (a: T, b: T) => number) {
-  let last = heap.pop()!
-  if (heap.length) {
-    heap[0] = last
-    bubble(heap, 0, cmp)
-  }
-}
-
-function cmpBool(a: boolean, b: boolean) {
-  return a ? (b ? 0 : 1) : (b ? -1 : 0)
-}
-
-function cmpRangeFrom(a: RangeIterator<RangeSet.Value>, b: RangeIterator<RangeSet.Value>) {
-  return a.from - b.from || cmpBool(b.value!.inclusiveStart, a.value!.inclusiveStart)
-}
-
-function cmpRangeTo(a: RangeIterator<RangeSet.Value>, b: RangeIterator<RangeSet.Value>) {
-  return a.to - b.to || cmpBool(a.value!.inclusiveEnd, b.value!.inclusiveEnd)
-}
-
-function cmpPoint(a: PointIterator<PointSet.Value>, b: PointIterator<PointSet.Value>) {
-  return a.from - b.from || a.side - b.side
 }
 
 export type WrapperSource = Mark<any> | WrapperRangeDecoration
@@ -1260,15 +827,14 @@ export type WrapperSource = Mark<any> | WrapperRangeDecoration
 function nodeWrappers(
   schema: Schema,
   tag: Node.Tag,
-  active: readonly RangeIterator<Decoration.Range>[],
+  active: readonly Decoration.Range[],
   atom: boolean
 ): readonly WrapperSource[] {
   let wrappers: WrapperSource[] | undefined
 
   for (let mark of tag.marks) if (mark.type.element) (wrappers || (wrappers = [])).push(mark)
   if (active.length) {
-    for (let cur of active) {
-      let val = cur.value!
+    for (let val of active) {
       if (val instanceof WrapperRangeDecoration && (tagScope(tag, atom) & val.scope) &&
           (!val.query || schema.matchNode(tag.type, val.query)))
         (wrappers || (wrappers = [])).push(val)
@@ -1302,8 +868,9 @@ export class DecoIterator {
   globalAttrs: readonly TagAttribute[]
   schema: Schema
   pos: Pos
-  rangeIter: RangeIterator<Decoration.Range>[] = []
-  pointIter: PointIterator<Decoration.Point>[] = []
+  rangeCursor: RangeSet.Cursor<Decoration.Range>
+  pointSets: readonly Decoration.Point.Set[]
+  pointCursor: PointSet.Cursor<Decoration.Point>
   endWidgets: boolean
 
   constructor(readonly state: GardState, readonly decoSet: DecoSet) {
@@ -1315,14 +882,9 @@ export class DecoIterator {
     this.globalAttrs = state.facet(tagAttribute)
     this.pos = state.doc.resolve(0)
     this.schema = state.schema
-    for (let s of state.facet(Decoration.Range.source)) {
-      let set = decoSet.ranges.get(s)
-      if (set?.length) this.rangeIter.push(set.iter())
-    }
-    for (let s of state.facet(Decoration.Point.source)) {
-      let set = decoSet.points.get(s)
-      if (set?.length) this.pointIter.push(set.iter())
-    }
+    this.rangeCursor = RangeSet.cursor(state.facet(Decoration.Range.source).map(s => s(state)))
+    this.pointSets = state.facet(Decoration.Point.source).map(s => s(state))
+    this.pointCursor = PointSet.cursor(this.pointSets)
   }
 
   widgets(tag: Node.Tag, place: WidgetPlace, walker: DecoWalker) {
@@ -1345,10 +907,9 @@ export class DecoIterator {
   }
 
   walk(from: number, inclusiveStart: boolean, to: number, walker: DecoWalker) {
-    for (let i of this.rangeIter) i.goto(from)
-    for (let i of this.pointIter) i.goto(from, inclusiveStart)
-    let iter = new HeapIterator<Decoration.Range, Decoration.Point>(
-      this.rangeIter.filter(i => i.value), this.pointIter.filter(i => i.value), from, to)
+    this.rangeCursor.goto(from)
+    this.pointCursor.goto(from, inclusiveStart ? -1e9 : Side.After)
+    let iter = new SpanIterator<Decoration.Range, Decoration.Point>(this.rangeCursor, this.pointCursor, from, to)
     let pos = this.pos.advance(from - this.pos.pos), started = inclusiveStart
     let atomParent: Pos.Plot | undefined
     for (let p: Pos.Plot | null = pos.parent; p; p = p.parent)
@@ -1356,7 +917,7 @@ export class DecoIterator {
 
     // Track points that may apply to the node at the start of the next range
     let pendingDeco: Decoration.Point[] = [], pendingPos = -1
-    let pendingShape: ShapeDecoration | null = null, pendingShapeSet: PointSet | null = null
+    let pendingShape: ShapeDecoration | null = null, pendingShapeSet: Decoration.Point.Set | null = null
 
     let wrap: Pos.Walker = {
       skip: (node, pos) => { // Only done for leaf nodes.
@@ -1405,7 +966,7 @@ export class DecoIterator {
         atomParent = undefined
         while (iter.point && iter.from < end) iter.next()
       } else if (iter.point) {
-        let value = iter.point.value!
+        let value = iter.point
         if (value instanceof WidgetDecoration) {
           walker.widget(value.widget, value.side)
         } else {
@@ -1415,9 +976,9 @@ export class DecoIterator {
             pendingPos = pos.pos
           }
           if (value instanceof ShapeDecoration &&
-              (!pendingShape || compareSetPrec(pendingShapeSet!, iter.point.set, this.pointIter))) {
+              (!pendingShape || compareSetPrec(pendingShapeSet!, iter.pointSource!, this.pointSets))) {
             pendingShape = value
-            pendingShapeSet = iter.point.set
+            pendingShapeSet = iter.pointSource
           } else {
             pendingDeco.push(value)
           }
@@ -1438,7 +999,7 @@ export class DecoIterator {
     this.pos = pos
   }
 
-  tagShape(tag: Node.Tag, active: RangeIterator<Decoration.Range>[]) {
+  tagShape(tag: Node.Tag, active: Decoration.Range[]) {
     let shape
     if (!tag.is(Leaf.Text)) for (let src of this.tagShapes) if (src.type == tag.type) {
       shape = src.shape(tag)
@@ -1454,8 +1015,7 @@ export class DecoIterator {
     for (let {type, elt, target} of this.globalWrappers) if (tag.type == type) {
       shape = target && shape instanceof Elt ? shape.wrap(elt, target) : elt.fill([shape])
     }
-    for (let iter of active) {
-      let deco = iter.value!
+    for (let deco of active) {
       if (deco instanceof AttributeRangeDecoration && (scope & deco.scope) &&
           (!deco.query || this.schema.matchNode(tag.type, deco.query)))
         Attributes.push(add || (add = []), deco.attribute, deco.value)
@@ -1468,10 +1028,10 @@ export class DecoIterator {
   }
 }
 
-function compareSetPrec(setA: PointSet, setB: PointSet, array: readonly PointIterator<PointSet.Value>[]) {
-   if (setA != setB) for (let i of array) {
-     if (i.set == setA) return -1
-     if (i.set == setB) return 1
+function compareSetPrec(setA: Decoration.Point.Set, setB: Decoration.Point.Set, array: readonly Decoration.Point.Set[]) {
+  if (setA != setB) for (let set of array) {
+    if (set == setA) return -1
+    if (set == setB) return 1
   }
   return 0
 }

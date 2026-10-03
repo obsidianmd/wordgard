@@ -6,16 +6,7 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./doc": "./dist/doc.js",
-    "./types": "./dist/types.js",
-    "./schema": "./dist/schema.js",
-    "./table": "./dist/table.js",
-    "./state": "./dist/state.js",
-    "./editor": "./dist/editor.js",
-    "./command": "./dist/command.js",
-    "./history": "./dist/history.js",
-    "./collab": "./dist/collab.js",
-    "./phrases": "./dist/phrases.js"
+    "./*": "./dist/*.js"
   },
   "scripts": {
     "test": "mocha test/test-*.ts",

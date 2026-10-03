@@ -1,9 +1,14 @@
 import ist from "ist"
 import {Plot, Mark, Leaf, Node, ChangeSet, type Token, Schema} from "wordgard/doc"
-import {CodeBlockLanguage, Emphasis, Strong, Link, ImageAlt} from "wordgard/types"
+import {CodeBlockLanguage, Emphasis, Strong, Link, ImageAlt,
+        Table, TableRow, BlockCell} from "wordgard/types"
 import {permute, open, close, slice, rDoc, rChange} from "./generate.ts"
-import {basicBuilders, basicSchema, tag, maybeTag, eq} from "./schema.ts"
-const {doc, p, h1, blockquote, ol, ul, li, pre, preLang, hr, img, imgAlt, $img, a, em, strong} = basicBuilders
+import {basicBuilders, basicSchema, builder, tag, maybeTag, eq} from "./schema.ts"
+const {doc, p, h1, blockquote, ol, ul, li, pre, preLang, hr, img, imgAlt, $img, a, em, strong,
+       table, tr, tdB} = basicBuilders
+
+const tableSchema = Schema.define(basicSchema.elements.concat([Table, TableRow, BlockCell]))
+const tdoc = builder(tableSchema)
 
 type ChangeData = (Token | string)[] | {add: Mark} | {remove: Mark}
 
@@ -164,7 +169,7 @@ describe("ChangeSet", () => {
       ist(ChangeSet.create(d, {from: 4, insert: slice(close, close, close), fit: true}).apply(d), d, eq)
     })
 
-    it("can chance the depth of existing content", () => {
+    it("can change the depth of existing content", () => {
       let d = doc(p("abc"))
       ist(ChangeSet.create(d, {from: 1, insert: slice("x", close, open(blockquote()), open(p())), fit: true}).apply(d),
           doc(p("x"), blockquote(p("abc"))), eq)
@@ -257,6 +262,12 @@ describe("ChangeSet", () => {
           doc(hr, h1("abc"), p("def")), eq)
       ist(ChangeSet.create(d, {from: 4, insert: [hr], fit: true}).apply(d),
           doc(h1("abc"), hr, p("def")), eq)
+    })
+
+    it("prefers defining context over made-up wrappers", () => {
+      let d = tdoc(table(tr(tdB(p())))), src = tdoc(ul(li(p("a")), li(p("b"))))
+      let ch = ChangeSet.create(d, {correct: {from: 3, to: 5, insert: src.slice(3, 9), fit: src.contextAt(3)}, local: true})
+      ist(ch.apply(d), tdoc(table(tr(tdB(ul(li(p("a")), li(p("b"))))))), eq)
     })
   })
 

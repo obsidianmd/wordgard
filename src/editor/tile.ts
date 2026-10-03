@@ -79,7 +79,7 @@ export abstract class Tile {
   get isSpanning() { return false }
   get isComposition() { return (this.flags & TileFlag.Composition) > 0 }
   get isPoint() { return (this.flags & TileFlag.Point) > 0 }
-  get node(): Node | null { return null }
+  get tag(): Node.Tag | null { return null }
 
   posBeforeChild(child: Tile, ownStart = this.posAtStart): number {
     for (let i = 0, pos = ownStart;; i++) {
@@ -118,7 +118,7 @@ export abstract class Tile {
 
   get nodeParent(): Tile {
     let tile: Tile = this
-    while (!tile.node) tile = tile.parent!
+    while (!tile.tag) tile = tile.parent!
     return tile
   }
 
@@ -141,7 +141,7 @@ export abstract class Tile {
 
   nearestNode() {
     let tile: Tile = this
-    while (!tile.node) tile = tile.parent!
+    while (!tile.tag) tile = tile.parent!
     return tile
   }
 
@@ -213,12 +213,12 @@ export class CompositeTile extends Tile {
 
   posAtCoordsInner(start: number, state: GardState, x: number, y: number, textblock: TextblockMap | null,
                    orientation: Orientation): CoordPos {
-    let {node} = this, outerOrientation = orientation
-    if (node && node.isPlot) {
-      orientation = node.type.orientation == "row" ? Orientation.Row : Orientation.Col
-      if (node.isTextblock) textblock = TextblockMap.get(state, start, node)
-      else if (node.isBlock) textblock = null
-    } else if (node && node.isText) {
+    let {tag} = this, outerOrientation = orientation
+    if (tag && tag.isPlot) {
+      orientation = tag.type.orientation == "row" ? Orientation.Row : Orientation.Col
+      if (tag.isTextblock) textblock = TextblockMap.get(state, start, start ? state.doc.plotAt(start - 1)! : state.doc)
+      else if (tag.type.isBlock) textblock = null
+    } else if (tag && tag.isText) {
       orientation = Orientation.Row
     }
     let result = this.isAtom || !this.children.length ? null
@@ -227,7 +227,7 @@ export class CompositeTile extends Tile {
     if (result) return result
     let rect = this.dom.getBoundingClientRect()
     let after = outerOrientation == Orientation.Row ? x > (rect.left + rect.right) / 2 : y > (rect.top + rect.bottom) / 2
-    let target = this.node && this.node.type.isSelectable &&
+    let target = this.tag && this.tag.type.isSelectable &&
       x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom ? start : null
     return CoordPos.create(start + (after ? this.length - 2 * this.boundary: 0), after ? -1 : 1, target)
   }
@@ -248,7 +248,7 @@ export class CompositeTile extends Tile {
     let {closest, rect} = result
     let pos = this.posBeforeChild(closest, start)
     if (closest.dom.nodeName == "BR") return CoordPos.create(pos, 1)
-    if (closest.node && closest.node.isPlot && closest.node.isInline) {
+    if (closest.tag && closest.tag.isPlot && closest.tag.type.isInline) {
       if (x > rect.right) return CoordPos.create(pos + closest.length, -1)
       if (x < rect.left) return CoordPos.create(pos, 1)
     }
@@ -342,7 +342,7 @@ export class DocTile extends CompositeTile {
 
   get isDoc() { return true }
 
-  get node() { return this.state.doc }
+  get tag() { return this.state.doc.tag }
 
   update(state: GardState, changes: Changes, wg: Wordgard, composition?: CompositionInfo | null) {
     let decoSet = getDecoSet(state)
@@ -396,7 +396,7 @@ export class DocTile extends CompositeTile {
   nearest(dom: DOMNode, requireNode = false) {
     for (let cur: DOMNode | null = dom; cur; cur = cur.parentNode) {
       let elt = cur.wgTile
-      if (elt && (!requireNode || elt.node) && this.owns(elt)) return elt
+      if (elt && (!requireNode || elt.tag) && this.owns(elt)) return elt
     }
     return null
   }
@@ -416,7 +416,7 @@ export class DocTile extends CompositeTile {
       for (let ch of parent.children) {
         let end = off + ch.length
         if (pos < end) {
-          if (off == pos && ch.node || ch instanceof TextTile) return ch
+          if (off == pos && ch.tag || ch instanceof TextTile) return ch
           parent = ch
           off += ch.boundary
           continue search
@@ -544,7 +544,7 @@ export class DocTile extends CompositeTile {
       domBefore = dom.previousSibling
     }
     // Move positions at the very start or end of inline plots out of them
-    if (elt.node && elt.node.isInline && elt.node.isPlot && (!domBefore || !domBefore.nextSibling))
+    if (elt.tag && elt.tag.type.isInline && elt.tag.isPlot && (!domBefore || !domBefore.nextSibling))
       return domBefore ? elt.posAfter : elt.posBefore
 
     while (domBefore && !((eltBefore = domBefore.wgTile) && eltBefore.parent == elt))
@@ -580,16 +580,16 @@ export class EltTile extends CompositeTile {
   declare dom: Element
   declare parent: CompositeTile
 
-  constructor(readonly elt: DecoElt, readonly _node: Node | null, flags: number, length: number, dom: Element) {
+  constructor(readonly elt: DecoElt, readonly _tag: Node.Tag | null, flags: number, length: number, dom: Element) {
     super(dom, flags)
     this.length = length
   }
 
   get isSpanning() { return (this.flags & TileFlag.Spanning) > 0 }
-  get isNodeOuter() { return !!this.node }
-  get isAtom() { return !!this._node && (this.flags & TileFlag.Atom) > 0 }
-  get boundary() { return this._node && !(this.flags & TileFlag.Atom) ? 1 : 0 }
-  get node() { return this._node }
+  get isNodeOuter() { return !!this.tag }
+  get isAtom() { return !!this._tag && (this.flags & TileFlag.Atom) > 0 }
+  get boundary() { return this._tag && !(this.flags & TileFlag.Atom) ? 1 : 0 }
+  get tag() { return this._tag }
 
   get contentTile(): EltTile | null {
     if (!(this.flags & TileFlag.HasContent)) return null
@@ -597,7 +597,7 @@ export class EltTile extends CompositeTile {
     return this
   }
 
-  static of(elt: DecoElt, node: Node | null, flags: number, length: number, dom?: Element | null) {
+  static of(elt: DecoElt, tag: Node.Tag | null, flags: number, length: number, dom?: Element | null) {
     if (elt.hasContent) {
       flags |= TileFlag.HasContent
       if (elt.children.length > 1) {
@@ -605,7 +605,7 @@ export class EltTile extends CompositeTile {
         if (zero > -1 && zero < elt.children.length - 1) flags |= TileFlag.ContentNotLast
       }
     }
-    return new EltTile(elt, node, flags, length, dom || elt.outerDOM())
+    return new EltTile(elt, tag, flags, length, dom || elt.outerDOM())
   }
 }
 
@@ -622,7 +622,7 @@ function setUneditable(dom: Element | Text) {
 export class WidgetTile extends Tile {
   constructor(
     readonly widget: Widget<any>,
-    readonly _node: Node | null,
+    readonly _tag: Node.Tag | null,
     flags: TileFlag,
     dom: Element | Text,
     length: number = 0
@@ -631,9 +631,9 @@ export class WidgetTile extends Tile {
     this.length = length
   }
 
-  get isNodeOuter() { return !!this._node }
+  get isNodeOuter() { return !!this._tag }
   get isAtom() { return true }
-  get node() { return this._node }
+  get tag() { return this._tag }
 
   get children() { return noChildren }
 
@@ -659,7 +659,7 @@ export class WidgetTile extends Tile {
 
   posAtCoordsInner(start: number, state: GardState, x: number, y: number,
                    textblock: TextblockMap | null, orientation: Orientation): CoordPos {
-    if (!this.node) return CoordPos.create(start, 1)
+    if (!this.tag) return CoordPos.create(start, 1)
     let rect = this.dom.nodeType == 1 ? (this.dom as Element).getBoundingClientRect()
       : textRange(this.dom as Text, 0, this.length).getBoundingClientRect()
     let after = orientation == Orientation.Col ? y > (rect.top + rect.bottom) / 2
@@ -805,7 +805,7 @@ class TilePointer {
     let {index, tile, parent} = this
     for (;;) {
       if (!index) {
-        if (!parent || (tile instanceof EltTile ? tile.node : !(tile instanceof TextTile))) break
+        if (!parent || (tile instanceof EltTile ? tile.tag : !(tile instanceof TextTile))) break
         ;({index, tile, parent} = parent)
       } else {
         if (tile instanceof TextTile) break
@@ -832,7 +832,7 @@ class ContentUpdate {
   reused = new Map<Tile, Reused>()
   keepWalker: TileWalker
   toConnect: WidgetTile[] = []
-  partialNode: {node: Node, shape: Decoration.Shape, wrappers: number, reuse: Tile | null} | null = null
+  partialNode: {tag: Node.Tag, length: number, shape: Decoration.Shape, wrappers: number, reuse: Tile | null} | null = null
 
   constructor(
     readonly state: GardState,
@@ -850,7 +850,7 @@ class ContentUpdate {
           this.new = span
         } else {
           this.reused.set(tile, Reused.DOM)
-          let inner = EltTile.of(tile.elt, tile.node, tile.flags, tile.boundary * 2, tile.dom)
+          let inner = EltTile.of(tile.elt, tile.tag, tile.flags, tile.boundary * 2, tile.dom)
           this.new.addChild(inner)
           this.new = inner
         }
@@ -880,14 +880,14 @@ class ContentUpdate {
             let wrappers = 0
             for (let w: Tile | null = this.new; w && w.isWrapper; w = w.parent) wrappers++
             let shape = tile instanceof EltTile ? tile.elt : tile instanceof WidgetTile ? tile.widget : null
-            if (!shape || !tile.node) throw new Error("Unexpected atom tile")
-            this.partialNode = {node: tile.node, reuse: tile, shape, wrappers}
+            if (!shape || !tile.tag) throw new Error("Unexpected atom tile")
+            this.partialNode = {tag: tile.tag, length: to - from, reuse: tile, shape, wrappers}
           } else {
             if (!this.partialNode) throw new Error("Missing partial node")
             if (to == tile.length) {
-              let {node, shape, reuse} = this.partialNode
+              let {tag, length, shape, reuse} = this.partialNode
               this.partialNode = null
-              this.new.addChild(this.buildNodeShape(node, shape, reuse))
+              this.new.addChild(this.buildNodeShape(tag, length + (to - from), shape, reuse))
             }
           }
         } else if (this.new.lastChild instanceof TextTile && !this.new.lastChild.isComposition) {
@@ -919,11 +919,11 @@ class ContentUpdate {
         pos += tile.children[index].length
         index++
       } else {
-        if (tile.node) {
-          while (!nw.node && nw.parent) nw = nw.parent
+        if (tile.tag) {
+          while (!nw.tag && nw.parent) nw = nw.parent
           if (!nw.parent) break
-          if (!nw.node!.tag.eq(tile.node.tag) &&
-              (this.deco.hasEndWidget(tile.node.type) || this.deco.hasEndWidget(nw.node!.type)))
+          if (!nw.tag!.eq(tile.tag) &&
+              (this.deco.hasEndWidget(tile.tag.type) || this.deco.hasEndWidget(nw.tag!.type)))
             cut.push(pos)
           nw = nw.parent
           if (!nw) break
@@ -1012,7 +1012,7 @@ class ContentUpdate {
     this.deco.walk(start, includeStart, end, {
       enter: (node, elt, wrappers) => {
         this.openWrappers(wrappers, reuse)
-        let tile = this.buildNodeShape(node, elt, reuse ? this.old.tileAfter() : null) as EltTile
+        let tile = this.buildNodeShape(node.tag, node.length, elt, reuse ? this.old.tileAfter() : null) as EltTile
         this.new.addChild(tile)
         this.new = tile.contentTile!
         if (!this.new) throw new Error("Non-atom node rendered without hole")
@@ -1044,12 +1044,12 @@ class ContentUpdate {
             this.new.addChild(new TextTile(node.param, next.dom))
           }
         } else if (partial != null) {
-          this.partialNode = {node, shape, wrappers: wrapCount, reuse: reuse ? this.old.tileAfter() : null}
+          this.partialNode = {tag: node.tag, length: partial, shape, wrappers: wrapCount, reuse: reuse ? this.old.tileAfter() : null}
           if (reuse) this.old = this.old.walk(partial, 1)
           this.posB += partial
           return
         } else {
-          this.new.addChild(this.buildNodeShape(node, shape, reuse ? this.old.tileAfter() : null))
+          this.new.addChild(this.buildNodeShape(node.tag, node.length, shape, reuse ? this.old.tileAfter() : null))
         }
         for (let i = 0; i < wrapCount; i++) this.up()
         if (reuse) this.old = this.old.walk(node.length, 1)
@@ -1058,12 +1058,12 @@ class ContentUpdate {
       nodePart: (node, length, done) => {
         if (!this.partialNode) throw new Error("Continuing unknown partial node")
         this.posB += length
-        this.partialNode.node = node
+        this.partialNode.tag = node.tag
         if (reuse) this.old = this.old.walk(length, 1)
         if (done) {
-          let {node, shape, wrappers, reuse} = this.partialNode
+          let {tag, shape, wrappers, reuse} = this.partialNode
           this.partialNode = null
-          this.new.addChild(this.buildNodeShape(node, shape, reuse))
+          this.new.addChild(this.buildNodeShape(tag, node.length, shape, reuse))
           for (let i = 0; i < wrappers; i++) this.up()
         }
       },
@@ -1107,7 +1107,8 @@ class ContentUpdate {
   }
 
   // node will be null when building inner structure
-  buildNodeShape(node: Node | null, shape: Decoration.Shape, reuse: Tile | readonly Tile[] | null,
+  buildNodeShape(tag: Node.Tag | null, length: number,
+                 shape: Decoration.Shape, reuse: Tile | readonly Tile[] | null,
                  inEditable = true, afterContent = TileFlag.None) {
     if (shape instanceof Elt) {
       if (inEditable && !shape.hasContent) {
@@ -1124,16 +1125,16 @@ class ContentUpdate {
         else if (!strict)
           updateAttributes(dom, (reusable as EltTile).elt.attrs, shape.attrs)
       }
-      let flags = (node ? (shape.hasContent ? TileFlag.None : TileFlag.Atom)
+      let flags = (tag ? (shape.hasContent ? TileFlag.None : TileFlag.Atom)
         : TileFlag.NodeInner | (shape.hasContent ? TileFlag.None : TileFlag.Point)) | afterContent
-      let tile = EltTile.of(shape, node, flags, node ? node.length : 0, dom)
+      let tile = EltTile.of(shape, tag, flags, tag ? length : 0, dom)
       let afterContentInner = TileFlag.None
       for (let ch of shape.children) {
         if (ch === 0) {
           afterContentInner = TileFlag.AfterContent
           tile.flags |= TileFlag.PlotContent
         } else {
-          tile.addChild(this.buildNodeShape(null, typeof ch == "string" ? Widget.text.of(ch) : ch,
+          tile.addChild(this.buildNodeShape(null, 0, typeof ch == "string" ? Widget.text.of(ch) : ch,
                                             reusable ? reusable.children : reuse, inEditable, afterContentInner))
         }
       }
@@ -1147,8 +1148,8 @@ class ContentUpdate {
         dom = shape.render(this.wg)
       }
       if (inEditable && !shape.type.editable) setUneditable(dom)
-      let flags = (node ? TileFlag.Atom : TileFlag.Point | TileFlag.NodeInner) | afterContent
-      let tile = new WidgetTile(shape, node, flags, dom, node ? node.length : 0)
+      let flags = (tag ? TileFlag.Atom : TileFlag.Point | TileFlag.NodeInner) | afterContent
+      let tile = new WidgetTile(shape, tag, flags, dom, tag ? length : 0)
       if (shape.type.connect) this.toConnect.push(tile)
       return tile
     }
@@ -1158,8 +1159,8 @@ class ContentUpdate {
     let tile = this.new
     if (!tile.isPlotContent) return
     while (tile.isNodeInner) tile = tile.parent!
-    let node = tile.node
-    if (!node || !node.isPlot || !(node.isTextblock || node.isInline)) return
+    let tag = tile.tag
+    if (!tag || !tag.isPlot || !(tag.isTextblock || tag.type.isInline)) return
 
     // Textblocks get a trailing <br> if necessary
     let hasHack = -1, needsHack = true
