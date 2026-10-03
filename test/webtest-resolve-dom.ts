@@ -1,4 +1,4 @@
-import {Wordgard, Widget, Decoration, PointSet} from "wordgard/editor"
+import {Wordgard, Widget, Decoration} from "wordgard/editor"
 import {GardState} from "wordgard/state"
 import {Plot, Leaf, Elt} from "wordgard/doc"
 import {Paragraph} from "wordgard/types"
@@ -49,7 +49,7 @@ describe("DocTile.resolve", () => {
   }
 
   it("resolves properly between widgets", () => {
-    let set = PointSet.create([
+    let set = Decoration.Point.set([
       [3, Decoration.Point.widget(Widget.create({render: () => span("A")}), {side: -1})],
       [3, Decoration.Point.widget(Widget.create({render: () => span("B")}), {side: 0})],
       [3, Decoration.Point.widget(Widget.create({render: () => span("C")}), {side: 0})],
@@ -74,7 +74,7 @@ describe("DocTile.resolve", () => {
   })
 
   it("picks the right side of widgets on wrapper boundaries", () => {
-    let set = PointSet.create([
+    let set = Decoration.Point.set([
       [1, Decoration.Point.widget(Widget.create({render: () => span("A")}), {side: -1})],
       [2, Decoration.Point.widget(Widget.create({render: () => span("B")}), {side: 1})],
       [3, Decoration.Point.widget(Widget.create({render: () => span("C")}), {side: 1})],

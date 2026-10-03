@@ -1,16 +1,35 @@
-import {Wordgard, menuBar} from "wordgard/editor"
-import {fullSchema, codeBlockLanguage} from "wordgard/schema"
-import {history} from "wordgard/history"
-import {tables} from "wordgard/table"
+import { Plot } from "wordgard/doc"
+import { Wordgard, menuBar } from "wordgard/editor"
+import { fullSchema } from "wordgard/schema"
+import { history } from "wordgard/history"
+import { tables } from "wordgard/table"
 
-;(window as any).wg = Wordgard.create({
+const qMouseSelection = Wordgard.mouseSelectionStyle.of(
+  (wg, event) => {
+    const qDom = (event.target as any)?.closest('p');
+    if (!qDom) return null
+    let nodeobj = wg.nodeFromDOM(qDom)!;
+    console.log('nodeFromDOM:', (nodeobj.node.toJSON() as any).content?.[0]?.param)
+
+    const nodeAtOut = wg.state.doc.nodeAt(nodeobj.pos)! as Plot
+    console.log('nodeAt:', (nodeAtOut.content[0] as any)?.param)
+    return null
+  })
+
+;(window as any). wg = Wordgard.create({
   parent: document.body,
-  doc: `<h2>Demo Content</h2><p>A <em>paragraph</em>.</p>`,
+  doc: `
+  <p>123</p>
+  <p>123</p>
+`,
   config: [
     fullSchema(),
-    codeBlockLanguage({languages: ["JavaScript", "TypeScript", "Markdown", "C++", "Python"]}),
     history(),
     menuBar(),
-    tables(),
+    tables({
+      cellContent: 'block'
+    }),
+    qMouseSelection,
   ]
 })
+

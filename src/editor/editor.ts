@@ -454,7 +454,9 @@ export class Wordgard {
   /// of its parent nodes, if any. Will not return the outer document node.
   nodeFromDOM(node: Element): {pos: number, node: Node} | null {
     let tile = this.docTile.nearest(node, true)
-    return tile && tile != this.docTile ? {pos: tile.posBefore, node: tile.node!} : null
+    if (!tile || tile == this.docTile) return null
+    let pos = tile.posBefore, n = this.state.doc.nodeAt(pos)
+    return n && {pos, node: n}
   }
 
   /// Get the document position at the given screen coordinates.

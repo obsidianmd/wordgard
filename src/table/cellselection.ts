@@ -1,12 +1,12 @@
 import {GardState, GardSelection, Transaction} from "wordgard/state"
-import {Decoration, PointSet, Wordgard} from "wordgard/editor"
+import {Decoration, Wordgard} from "wordgard/editor"
 import {Node, Plot, Pos, ChangeSet, ValidationError} from "wordgard/doc"
 import {Table, TableRow} from "wordgard/types"
 import {Command, moveByUnit, moveByLine, moveByWord, moveToLineSide} from "wordgard/command"
 
 import {TableMap} from "./tablemap"
 
-const cellSelectionDeco = GardState.Field.define<PointSet<Decoration.Point>>({
+const cellSelectionDeco = GardState.Field.define<Decoration.Point.Set>({
   create: getCellDeco,
   update: (deco, tr) => {
     return tr.docChanged || tr.selection ? getCellDeco(tr.state) : deco
@@ -16,9 +16,9 @@ const cellSelectionDeco = GardState.Field.define<PointSet<Decoration.Point>>({
 
 const selectedCell = Decoration.Point.attributes({class: "wg-selected-cell"})
 
-function getCellDeco(state: GardState): PointSet<Decoration.Point> {
-  if (!(state.selection instanceof CellSelection)) return PointSet.empty
-  return PointSet.create(state.selection.ranges.map(({from}) => [from - 1, selectedCell]))
+function getCellDeco(state: GardState): Decoration.Point.Set {
+  if (!(state.selection instanceof CellSelection)) return Decoration.Point.none
+  return Decoration.Point.set(state.selection.ranges.map(({from}) => [from - 1, selectedCell]))
 }
 
 const tableSelectionFilter = GardState.prec.low(Transaction.extender.of(tr => {

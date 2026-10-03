@@ -1,5 +1,5 @@
 import {Elt} from "wordgard/doc"
-import {Wordgard, PointSet, Decoration, KeyBinding} from "wordgard/editor"
+import {Wordgard, Decoration, KeyBinding} from "wordgard/editor"
 import {GardState, Transaction, GardSelection} from "wordgard/state"
 import {ImageSize, ImageAlt, Image, Figure, CaptionedFigure} from "wordgard/types"
 import {Command, Menu} from "wordgard/command"
@@ -66,18 +66,18 @@ const handleElt = Elt.mk("svg:svg", {class: "wg-resize-handle", viewBox: "0 0 20
 
 const resizeWrapper = Decoration.Point.wrapper(Elt.mk("span", {class: "wg-resize-hover"}, [handleElt, 0]), {target: "img"})
 
-const resizeState = GardState.Field.define<{target: number, resizing: number, deco: PointSet<Decoration.Point>}>({
-  create: () => ({target: -1, resizing: -1, deco: PointSet.empty}),
+const resizeState = GardState.Field.define<{target: number, resizing: number, deco: Decoration.Point.Set}>({
+  create: () => ({target: -1, resizing: -1, deco: Decoration.Point.none}),
   update: (value, tr) => {
     for (let e of tr.effects) {
       if (e.is(setResizing)) {
         let {target, resizing} = e.value
         if (target < 0)
-          return {target: -1, resizing: -1, deco: PointSet.empty}
+          return {target: -1, resizing: -1, deco: Decoration.Point.none}
         let deco: [number, Decoration.Point][] = [[target, resizeWrapper]]
         if (resizing > -1)
           deco.push([target, Decoration.Point.attributes({style: `width: ${resizing}px`}, {target: "img"})])
-        return {target, resizing, deco: PointSet.create(deco)}
+        return {target, resizing, deco: Decoration.Point.set(deco)}
       }
     }
     return value.target < 0 || !tr.docChanged ? value

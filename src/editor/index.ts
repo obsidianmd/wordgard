@@ -24,7 +24,7 @@ export {KeyBinding} from "./keymap"
 //- extensions. They are useful for showing out-of-band information or
 //- editing controls directly in the editable content.
 
-export {Decoration, Widget, PointSet, RangeSet} from "./decoration"
+export {Decoration, Widget} from "./decoration"
 
 //- ### Panels
 
