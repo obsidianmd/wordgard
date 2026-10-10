@@ -6,16 +6,7 @@
   "main": "dist/index.js",
   "exports": {
     ".": "./dist/index.js",
-    "./doc": "./dist/doc.js",
-    "./types": "./dist/types.js",
-    "./schema": "./dist/schema.js",
-    "./table": "./dist/table.js",
-    "./state": "./dist/state.js",
-    "./editor": "./dist/editor.js",
-    "./command": "./dist/command.js",
-    "./history": "./dist/history.js",
-    "./collab": "./dist/collab.js",
-    "./phrases": "./dist/phrases.js"
+    "./*": "./dist/*.js"
   },
   "scripts": {
     "test": "mocha test/test-*.ts",
@@ -29,6 +20,8 @@
   "author": "Marijn Haverbeke <marijn@haverbeke.berlin>",
   "license": "MIT",
   "dependencies": {
+    "@codemirror/legacy-modes": "^6.5.5",
+    "@codemirror/streamparser": "^6.0.0",
     "@marijn/find-cluster-break": "^1.0.2",
     "crelt": "^1.0.6",
     "style-mod": "^4.1.3"

@@ -1,4 +1,5 @@
 import {Wordgard} from "wordgard/editor"
+import {Leaf} from "wordgard/doc"
 import {Strong} from "wordgard/types"
 import {GardSelection} from "wordgard/state"
 import ist from "ist"
@@ -21,31 +22,36 @@ function inputEvent(wg: Wordgard, type: string, init: InputEventInit) {
 
 type CompositionUpdate = [number, number, string, () => Text] | [number, number, string]
 
+type UpdateArg = CompositionUpdate | {run: () => void}
+
 function selEnd(node: Node) {
   document.getSelection()!.collapse(node, node.nodeValue!.length)
   return node as Text
 }
 
-function compose(wg: Wordgard, start: CompositionUpdate | (() => Text),
-                 ...args: (CompositionUpdate | {end?: (node: Text) => void, cancel?: boolean})[]) {
+function compose(wg: Wordgard, start: UpdateArg | (() => Text),
+                 ...args: (UpdateArg | {end?: (node: Text) => void, cancel?: boolean})[]) {
   let last = args[args.length - 1]
-  let [updates, options] = Array.isArray(last)
-    ? [args as CompositionUpdate[], {}]
-    : [args.slice(0, args.length - 1) as CompositionUpdate[], last as any]
+  let [updates, options] = Array.isArray(last) || "run" in last
+    ? [args as UpdateArg[], {}]
+    : [args.slice(0, args.length - 1) as UpdateArg[], last as any]
 
   ist(!wg.composing)
   compositionEvent(wg, "compositionstart")
   ist(wg.composing)
   let node!: Text, sel = document.getSelection()!
   for (let i = -1; i < updates.length; i++) {
-    let update: CompositionUpdate | undefined
+    let update: UpdateArg | undefined
     if (i < 0) {
       if (typeof start == "function") node = start()
       else update = start
     } else {
       update = updates[i]
     }
-    if (update) {
+    if (!update) {
+    } else if ("run" in update) {
+      update.run()
+    } else {
       compositionEvent(wg, "compositionupdate")
       let [from, to, text] = update
       let fromDOM = wg.domAtPos(from, -1)
@@ -76,7 +82,7 @@ function compose(wg: Wordgard, start: CompositionUpdate | (() => Text),
     wg.flush()
 
     if (options.cancel && i == updates.length - 1) {
-      // FIXME verify a canceled composition
+      ist(!wg.composing)
     } else {
       for (let p = node.parentNode, i = 0; p && p != wg.contentDOM && i < stack.length; p = p.parentNode, i++)
         ist(p, stack[i])
@@ -179,6 +185,34 @@ describe("composition", () => {
     }], [2, 2, "b"], [3, 3, "c"])
     ist(wg.contentDOM.innerHTML, "<p><strong>abc</strong></p>")
     ist(wg.state.doc, doc(p(strong("abc"))), eq)
+  })
+
+  it("can handle API-driven insertions around the composition", () => {
+    let wg = requireFocus(tempEditor(doc(p("a", 0, "b"))))
+    compose(wg, [2, 2, "-"],
+            {run: () => wg.dispatch({changes: {from: 1, insert: [Leaf.text("!")]}})},
+            [3, 4, "×"],
+            {run: () => wg.dispatch({changes: {from: 5, insert: [Leaf.text("?")]}})},
+            [3, 4, "⇒"])
+    ist(wg.state.doc, doc(p("!a⇒b?")), eq)
+    ist(wg.contentDOM.innerHTML, "<p>!a⇒b?</p>")
+  })
+
+  it("gracefully handles API-produced changes inside the composition", () => {
+    let wg = requireFocus(tempEditor(doc(p("ab", 0, "c"))))
+    compose(wg, [3, 3, "-"], {run: () => {
+      wg.dispatch({changes: {from: 2, insert: [Leaf.text("!")]}})
+      wg.flush()
+      ist(wg.contentDOM.innerHTML, "<p>a!b-c</p>")
+    }}, {cancel: true})
+    ist(wg.state.doc, doc(p("a!b-c")), eq)
+  })
+
+  it("gracefully handles starting a composition in a modified text node", () => {
+    let wg = requireFocus(tempEditor(doc(p("ab", 0, "c"))))
+    wg.dispatch({changes: {from: 2, insert: [Leaf.text("/")]}})
+    compose(wg, [4, 4, "-"], [4, 5, "×"])
+    ist(wg.state.doc, doc(p("a/b×c")), eq)
   })
 
   // FIXME text composition next to widgets

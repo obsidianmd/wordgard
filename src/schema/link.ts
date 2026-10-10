@@ -155,7 +155,7 @@ export namespace link {
   /// selection, will add a link to the selection instead of replacing
   /// it with the pasted text.
   export const pasteOver: GardState.Extension = Wordgard.pasteHandler.of((wg, event) => {
-    let {selection} = wg.state, data = event.clipboardData
+    let {selection} = wg.state, data = event.dataTransfer
     if (!data || selection.empty) return false
     let text = data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list")
     if (!text || !/^(https?|mailto|xmpp|data):[^ ]+$/.test(text)) return false

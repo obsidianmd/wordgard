@@ -1,4 +1,4 @@
-import {Wordgard, Decoration, Widget, PointSet, RangeSet} from "wordgard/editor"
+import {Wordgard, Decoration, Widget} from "wordgard/editor"
 import {GardState, Transaction} from "wordgard/state"
 import {Plot, Leaf, Node, Elt, Mark, Token} from "wordgard/doc"
 import {CodeBlock, Emphasis, Strong, Paragraph, Heading, Blockquote, Image, ImageAlt, HorizontalRule} from "wordgard/types"
@@ -325,16 +325,16 @@ describe("DocTile", () => {
 
     it("can draw widgets from a point set", () => {
       let node = render(doc(p("abc")), Decoration.Point.source.of(state => {
-        return PointSet.create([[1, Decoration.Point.widget(inlineWidget.of("x"))],
-                                [3, Decoration.Point.widget(inlineWidget.of("y"))]])
+        return Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("x")), 1],
+                                     [Decoration.Point.widget(inlineWidget.of("y")), 3]])
       }))
       ist(node.dom.innerHTML, "<p><span>x</span>ab<span>y</span>c</p>")
     })
 
     it("can update widgets from a point set", () => {
       let f = GardState.Field.define({
-        create: () => PointSet.create([[1, Decoration.Point.widget(inlineWidget.of("x"))]]),
-        update: () => PointSet.create([[4, Decoration.Point.widget(inlineWidget.of("y"))]]),
+        create: () => Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("x")), 1]]),
+        update: () => Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("y")), 4]]),
         provide: f => Decoration.Point.source.of(s => s.field(f))
       })
       let node = update(render(doc(p("a"), p("b")), f), {})
@@ -343,8 +343,8 @@ describe("DocTile", () => {
 
     it("can update widgets in place", () => {
       let f = GardState.Field.define({
-        create: () => PointSet.create([[1, Decoration.Point.widget(inlineWidget.of("x"))]]),
-        update: () => PointSet.create([[1, Decoration.Point.widget(inlineWidget.of("y"))]]),
+        create: () => Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("x")), 1]]),
+        update: () => Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("y")), 1]]),
         provide: f => Decoration.Point.source.of(s => s.field(f))
       })
       let node = update(render(doc(p("a")), f), {})
@@ -353,7 +353,7 @@ describe("DocTile", () => {
 
     it("orders widgets by side", () => {
       let w = (n: number) => Widget.create({render: () => span(n + ""), editable: true})
-      let src = (s: number) => Decoration.Point.source.of(() => PointSet.create([[2, Decoration.Point.widget(w(s), {side: s})]]))
+      let src = (s: number) => Decoration.Point.source.of(() => Decoration.Point.set([[Decoration.Point.widget(w(s), {side: s}), 2]]))
       ist(render(doc(p("xy")), src(1), src(-2), src(-1)).dom.innerHTML,
           "<p>x<span>-2</span><span>-1</span><span>1</span>y</p>")
     })
@@ -365,9 +365,9 @@ describe("DocTile", () => {
       })
       let flip = Transaction.Effect.define()
       let field = GardState.Field.define({
-        create: s => PointSet.create([[s.doc.length, Decoration.Point.widget(widget.of("x"))]]),
+        create: s => Decoration.Point.set([[Decoration.Point.widget(widget.of("x")), s.doc.length]]),
         update: (v, tr) => tr.effects.some(e => e.is(flip))
-          ? PointSet.create([[tr.state.doc.length, Decoration.Point.widget(widget.of("y"))]]) : v,
+          ? Decoration.Point.set([[Decoration.Point.widget(widget.of("y")), tr.state.doc.length]]) : v,
         provide: f => Decoration.Point.source.of(s => s.field(f))
       })
 
@@ -397,7 +397,7 @@ describe("DocTile", () => {
       let wA = Decoration.Range.wrapper("span",  {attributes: {class: "a"}})
       let wB = Decoration.Range.wrapper("span",  {attributes: {class: "b"}})
       let tile = render(doc(p("-")), Decoration.Range.source.of(s => {
-        return RangeSet.create([[1, 2, s.selection.from == 1 ? wA : wB]])
+        return Decoration.Range.set([[s.selection.from == 1 ? wA : wB, 1, 2]])
       }))
       ist(tile.dom.innerHTML, `<p><span class="a">-</span></p>`)
       tile = update(tile, {selection: {anchor: 2}})
@@ -406,10 +406,10 @@ describe("DocTile", () => {
 
     it("can handle changes from range and point decorations in a single transactions", () => {
       let point = Decoration.Point.source.of(s => {
-        return PointSet.create([[2, Decoration.Point.widget(inlineWidget.of(s.selection.from == 1 ? "x" : "y"))]])
+        return Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of(s.selection.from == 1 ? "x" : "y")), 2]])
       })
       let range = Decoration.Range.source.of(s => {
-        return RangeSet.create([[5, 6, Decoration.Range.attribute("data-m", String(s.selection.from))]])
+        return Decoration.Range.set([[Decoration.Range.attribute("data-m", String(s.selection.from)), 5, 6]])
       })
       let tile = update(render(doc(p("abcdef")), [point, range]), {selection: {anchor: 2}})
       ist(tile.dom.innerHTML, `<p>a<span>y</span>bcd<span data-m="2">e</span>f</p>`)
@@ -435,11 +435,11 @@ describe("DocTile", () => {
 
     it("doesn't drop point decorations directly after a change", () => {
       let classes = Decoration.Point.source.of(s => {
-        return PointSet.create(add => {
+        return Decoration.Point.set(add => {
           let i = 0
           s.doc.iterate((node, pos) => {
             if (node.type == Paragraph.type)
-              add(pos, Decoration.Point.attributes({"class": `c${++i % 3}`}))
+              add(Decoration.Point.attributes({"class": `c${++i % 3}`}), pos)
           })
         })
       })
@@ -449,20 +449,20 @@ describe("DocTile", () => {
 
     it("can take wrappers from spans", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
-        return RangeSet.create([[2, 5, Decoration.Range.wrapper("span", {attributes: {class: "a"}})]])
+        return Decoration.Range.set([[Decoration.Range.wrapper("span", {attributes: {class: "a"}}), 2, 5]])
       })).dom.innerHTML, "<p>a<span class=\"a\">b<img src=\"test.png\">c</span>d</p>")
     })
 
     it("can take attributes from spans", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
-        return RangeSet.create([[2, 5, Decoration.Range.attribute("alt", "a test", {query: Image})]])
+        return Decoration.Range.set([[Decoration.Range.attribute("alt", "a test", {query: Image}), 2, 5]])
       })).dom.innerHTML, "<p>ab<img alt=\"a test\" src=\"test.png\">cd</p>")
     })
 
     it("notices changes to spans that start before a preserved section", () => {
       ist(update(render(doc(p("abcd")), Decoration.Range.source.of(s => {
         let wrap = Decoration.Range.wrapper("span", {attributes: {class: s.doc.length % 2 ? "x" : "y"}})
-        return RangeSet.create([[1, s.doc.length - 1, wrap]])
+        return Decoration.Range.set([[wrap, 1, s.doc.length - 1]])
       })), {
         changes: {from: 3, insert: [Leaf.text("/")]}
       }).dom.innerHTML, `<p><span class="x">ab/cd</span></p>`)
@@ -470,46 +470,46 @@ describe("DocTile", () => {
 
     it("can override a specific leaf node's shape", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
-        return PointSet.create([[3, Decoration.Point.shape(Elt.mk("span", ["!"]))]])
+        return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("span", ["!"])), 3]])
       })).dom.innerHTML, `<p>ab<span${uned}>!</span>cd</p>`)
     })
 
     it("can override a specific non-leaf node's shape", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
-        return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", [0]))]])
+        return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", [0])), 0]])
       })).dom.innerHTML, "<div>ab<img src=\"test.png\">cd</div>")
     })
 
     it("can give a plot with atomic shape", () => {
       ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
-        return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", ["?"]))]])
+        return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", ["?"])), 0]])
       })).dom.innerHTML, `<div${uned}>?</div>`)
     })
 
     it("can dynamically redraw a plot as an atom", () => {
       let tile = render(doc(p("abc")))
       tile = update(tile, {effects: GardState.appendConfig.of(Decoration.Point.source.of(state => {
-        return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", ["?"]))]])
+        return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", ["?"])), 0]])
       }))})
       ist(tile.dom.innerHTML, `<div${uned}>?</div>`)
     })
 
     it("can dynamically redraw an atom plot as a regular plot", () => {
       let tile = render(doc(p("abc")), Decoration.Point.source.of(state => {
-        return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", ["?"]))]])
+        return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", ["?"])), 0]])
       }))
       tile = update(tile, {effects: GardState.reconfigure.of([])})
       ist(tile.dom.innerHTML, "<p>abc</p>")
     })
 
     it("can add attributes to a specific node", () => {
-      let deco = PointSet.create([[0, Decoration.Point.attributes({class: "u"})]])
+      let deco = Decoration.Point.set([[Decoration.Point.attributes({class: "u"}), 0]])
       ist(render(doc(p(), p()), Decoration.Point.source.of(() => deco)).dom.innerHTML,
           "<p class=\"u\"><br></p><p><br></p>")
     })
 
     it("won't try to add attributes to a text node", () => {
-      let deco = PointSet.create([[1, Decoration.Point.attributes({class: "u"})]])
+      let deco = Decoration.Point.set([[Decoration.Point.attributes({class: "u"}), 1]])
       ist(render(doc(p("a")), Decoration.Point.source.of(() => deco)).dom.innerHTML, "<p>a</p>")
     })
 
@@ -518,7 +518,7 @@ describe("DocTile", () => {
       let attr = Decoration.Point.attributes({class: "x"})
       let tile = render(doc(p("-"), table(tr(td("A"), td("B")), tr(td("C"), td("D")))),
                         Decoration.Point.source.of(state => state.doc.length == 21
-                          ? PointSet.create([[5, attr], [8, attr]]) : PointSet.empty))
+                          ? Decoration.Point.set([[attr, 5], [attr, 8]]) : Decoration.Point.none))
       tile = update(tile, {changes: [
         {from: 6, to: 7}, {from: 9, to: 10},
         {from: 14, to: 15, insert: [Leaf.text("A")]},
@@ -528,13 +528,13 @@ describe("DocTile", () => {
     })
 
     it("can add wrapping structure to a specific node", () => {
-      let deco = PointSet.create([[3, Decoration.Point.wrapper(Elt.mk("div", [Elt.mk("hr"), 0]))]])
+      let deco = Decoration.Point.set([[Decoration.Point.wrapper(Elt.mk("div", [Elt.mk("hr"), 0])), 3]])
       ist(render(doc(p("x"), p("y")), Decoration.Point.source.of(() => deco)).dom.innerHTML,
           "<p>x</p><div><hr><p>y</p></div>")
     })
 
     it("can handle a change modifying the depth of a plot's wrapper", () => {
-      let deco = PointSet.create([[0, Decoration.Point.wrapper(Elt.mk("div", [Elt.mk("hr"), 0]))]])
+      let deco = Decoration.Point.set([[Decoration.Point.wrapper(Elt.mk("div", [Elt.mk("hr"), 0])), 0]])
       let node = update(render(doc(p("x"), p("y"))), {
         effects: GardState.appendConfig.of(Decoration.Point.source.of(() => deco))
       })
@@ -593,7 +593,7 @@ describe("DocTile", () => {
 
     it("supports selectors for wrapper decorations", () => {
       let complexImg = Decoration.Tag.shape(Image, i => Elt.mk("span", {class: "my-image"}, [Elt.mk("img", {src: i.param})]))
-      let deco = PointSet.create([[2, Decoration.Point.wrapper(Elt.mk("span", {class: "inner"}, [0]), {target: "img"})]])
+      let deco = Decoration.Point.set([[Decoration.Point.wrapper(Elt.mk("span", {class: "inner"}, [0]), {target: "img"}), 2]])
       let tile = render(doc(p("»", $img)), [complexImg, Decoration.Point.source.of(() => deco)])
       ist(tile.dom.innerHTML, `<p>»<span class="my-image"${uned}><span class="inner"><img src="test.png"></span></span></p>`)
     })
@@ -602,7 +602,7 @@ describe("DocTile", () => {
       let node = render(doc(p($img)))
       let img = node.dom.querySelector("img")
       node = update(node, {effects: GardState.appendConfig.of(Decoration.Point.source.of(state => {
-        return PointSet.create([[1, Decoration.Point.wrapper(Elt.mk("span", {class: "u"}, [0]))]])
+        return Decoration.Point.set([[Decoration.Point.wrapper(Elt.mk("span", {class: "u"}, [0])), 1]])
       }))})
       ist(node.dom.querySelector("img"), img)
     })
@@ -622,7 +622,7 @@ describe("DocTile", () => {
       ist(render(doc(p("a")), [
         Decoration.Tag.shape(Paragraph, Elt.mk("div", {class: "b"}, [0])),
         Decoration.Point.source.of(state => {
-          return PointSet.create([[0, Decoration.Point.shape(Elt.mk("div", {class: "a"}, [0]))]])
+          return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", {class: "a"}, [0])), 0]])
         })
       ]).dom.innerHTML, "<div class=\"a\">a</div>")
     })
@@ -639,7 +639,7 @@ describe("DocTile", () => {
       let tile = render(doc(p("a")))
       tile = update(tile, {
         effects: GardState.appendConfig.of(Decoration.Point.source.of(state => {
-          return PointSet.create([[0, Decoration.Point.shape(Elt.mk("para"))]])
+          return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("para")), 0]])
         }))
       })
       ist(tile.dom.innerHTML, `<para${uned}></para>`)

@@ -46,6 +46,15 @@ type InputEventData = {
   domRange: {from: number, to: number} | null
 }
 
+// These are all covered by insertCompositionText in the post-2017
+// spec, but Safari hasn't quite caught up to that cutting-edge change
+// yet, and still fires the old types
+const compositionInputTypes = new Set([
+  "insertCompositionText",
+  "deleteCompositionText",
+  "insertFromComposition"
+])
+
 export class InputState {
   shiftKey = false
   lastKeyCode: number = 0
@@ -81,6 +90,7 @@ export class InputState {
   draggedContent: GardSelection | null = null
 
   notifiedFocused: boolean
+  suppressEvents = false
 
   // Between beforeinput and input events, this holds information
   // about the event (because input events no longer provide range
@@ -108,6 +118,7 @@ export class InputState {
   }
 
   handleEvent(event: Event) {
+    if (this.suppressEvents) return
     if (!eventBelongsToEditor(this.wg, event) || this.ignoreDuringComposition(event)) return
     if (event.type == "keydown" && this.keydown(event as KeyboardEvent)) return
     if (event.type == "keyup" && (event as KeyboardEvent).keyCode == 16) this.shiftKey = false
@@ -238,13 +249,14 @@ export class InputState {
     }
 
     let command = inputTypeCommands[type]
-    if ((type == "deleteContentBackward" || type == "deleteContentForward") && range &&
-        range.from != range.to && // Always run the command for empty ranges
-        !this.unflushedSelection && // Or if there is a selection-setting pending transaction
-        (sel.empty
-          ? !isSingleChar(this.domDoc, data.domRange!.from, data.domRange!.to) ||
-            sel.head != (type == "deleteContentBackward" ? range.to : range.from)
-          : sel.from != range.from || sel.to != range.to)) {
+    if (isDeletionInputEvent(type) && range &&
+        (!command ||
+         (range.from != range.to && // Always run the command for empty ranges
+          !this.unflushedSelection && // Or if there is a selection-setting pending transaction
+          (sel.empty
+            ? !isSingleChar(this.domDoc, data.domRange!.from, data.domRange!.to) ||
+              sel.head != (type == "deleteContentBackward" ? range.to : range.from)
+            : sel.from != range.from || sel.to != range.to)))) {
       // The browser is firing a deleteContent event to delete a random range.
       wg.dispatch({changes: {from: range.from, to: range.to, fit: true}, userEvent: "delete"})
     } else if (command) {
@@ -253,6 +265,21 @@ export class InputState {
       let insert = event.data!.replace(/\r\n?|\n/g, " ")
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       Command.dispatch(wg, insertText, {from, to, insert, userEvent: "input.type"})
+    } else if (type == "insertFromPaste") {
+      let {from, to} = this.unflushedSelection ? wg.state.selection.replacementRange : range!
+      let content = readClipboard(wg.state, event.dataTransfer!, wg.state.doc.resolve(from), wg.inputState.shiftKey)
+      let isSel = from == wg.state.selection.replacementRange.from && to == wg.state.selection.replacementRange.to
+      if (isSel && wg.state.facet(pasteHandler).some(
+            h => h(wg, event, content ? content.slice : Slice.empty, content ? content.context : [])))
+        return
+      if (content) { // FIXME proper multi-selection pasting
+        wg.dispatch({
+          changes: {from, to, insert: content.slice, fit: content.context},
+          selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
+          userEvent: "input.paste",
+          scrollIntoView: isSel
+        })
+      }
     } else if ((type == "insertReplacementText" || type == "insertFromYank")) {
       let read = readClipboard(wg.state, event.dataTransfer!, wg.state.sel.head, true)
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
@@ -265,13 +292,16 @@ export class InputState {
         scrollIntoView: touchesSel,
         userEvent: "insert.replacementText"
       })
-    } else if (type == "insertCompositionText") {
-      let compositionStart = !wg.inputState.composing!.changes
-      wg.inputState.composing!.changes++
+    } else if (compositionInputTypes.has(type)) {
+      let compositionStart = true
+      if (wg.inputState.composing) {
+        compositionStart = !wg.inputState.composing!.changes
+        wg.inputState.composing!.changes++
+      }
       let sel = wg.observer.selectionRange
       if (!sel.focusNode) return false
       let userEvent = "input.type.compose" + (compositionStart ? ".start" : "")
-      Command.dispatch(wg, insertText, {from: range!.from, to: range!.to, insert: event.data!, userEvent})
+      Command.dispatch(wg, insertText, {from: range!.from, to: range!.to, insert: event.data || "", userEvent})
     } else if (type == "formatSetBlockTextDirection") {
       if (event.data == "ltr" || event.data == "rtl")
         Command.dispatch(wg, setDirection, event.data)
@@ -323,6 +353,56 @@ export class InputState {
       if (tileAfter instanceof TextTile && tileAfter.text != after.nodeValue) return after
       return !tileBefore ? before : !tileAfter ? after : prev == after ? after : before
     }
+  }
+
+  getCompositionInfo(wg: Wordgard): CompositionInfo | null {
+    let wrap = this.wrappingComposition
+    if (wrap) {
+      let sel = wg.state.selection.head
+      return {
+        fromB: sel, toB: sel,
+        text: "",
+        target: null,
+        wrapCursor: wrap
+      }
+    }
+
+    let comp = this.composing
+    if (!comp || !(comp.target = this.findComposition(comp.target))) return null
+    let value = comp.target.nodeValue!
+    let fromB = this.posAtDOM(comp.target, 0, 1), toB = fromB + value.length
+    let disrupted = false
+    this.domMapping.iterChanges((fA, tA, fB, tB) => {
+      if (fB < toB && tB > fromB) disrupted = true
+    })
+    return disrupted ? null : {fromB, toB, text: value, target: comp.target}
+  }
+
+  clearComposition() {
+    let comp = this.composing!
+    this.composing = null
+    this.compositionEndedAt = Date.now()
+    if (!comp.target) return false
+    let pos = this.posAtDOM(comp.target, 0, 1)
+    this.wg.observer.addDirtyRange(pos, pos + comp.target.nodeValue!.length)
+    return true
+  }
+
+  abortComposition() {
+    if (!this.composing || !this.wg.hasFocus) return
+    this.clearComposition()
+    this.wg.win.setTimeout(() => {
+      this.suppressEvents = true
+      try {
+	getSelection(this.wg.root)?.collapse(document.body, 0)
+        let dummy = this.wg.win.document.body.appendChild(document.createElement("input"))
+        dummy.focus()
+        dummy.remove()
+        this.wg.focus()
+      } finally {
+        this.suppressEvents = false
+      }
+    }, 0)
   }
 
   recordTouch(e: TouchEvent) {
@@ -580,7 +660,7 @@ export const dropHandler = GardState.Facet.define<(
 
 export const pasteHandler = GardState.Facet.define<(
   wg: Wordgard,
-  event: ClipboardEvent,
+  event: InputEvent,
   slice: Slice,
   context: readonly Plot.Tag[]
 ) => boolean>()
@@ -627,38 +707,8 @@ export type CompositionInfo = {
   wrapCursor?: Mark.Set | null
 }
 
-export function getCompositionInfo(wg: Wordgard): CompositionInfo | null {
-  let wrap = wg.inputState.wrappingComposition
-  if (wrap) {
-    let sel = wg.state.selection.head
-    return {
-      fromB: sel, toB: sel,
-      text: "",
-      target: null,
-      wrapCursor: wrap
-    }
-  }
-
-  let comp = wg.inputState.composing
-  if (!comp || !(comp.target = wg.inputState.findComposition(comp.target))) return null
-  let value = comp.target.nodeValue!
-  let pos = wg.inputState.posAtDOM(comp.target, 0)
-  return {
-    fromB: pos, toB: pos + value.length,
-    text: value,
-    target: comp.target
-  }
-}
-
 function compositionEnd(wg: Wordgard) {
-  let comp = wg.inputState.composing
-  wg.inputState.composing = null
-  wg.inputState.compositionEndedAt = Date.now()
-  if (comp && comp.target) {
-    let pos = wg.inputState.posAtDOM(comp.target, 0)
-    wg.observer.addDirtyRange(pos, pos + comp.target.nodeValue!.length)
-    wg.flush()
-  }
+  if (wg.inputState.composing && wg.inputState.clearComposition()) wg.flush()
 }
 
 function compositionUpdate(wg: Wordgard, event: CompositionEvent) {
@@ -696,7 +746,7 @@ function inEditableDOM(wg: Wordgard, node: DOMNode | null) {
   return tile ? !(tile.isPoint || tile instanceof WidgetTile) : false
 }
 
-function isDeletionInputEvent(type: string) { return /^delete(Content|Word)/.test(type) }
+function isDeletionInputEvent(type: string) { return /^delete(Content|Word|ByComposition)/.test(type) }
 
 const inputTypeCommands: {[inputType: string]: Command.Bound | Command} = {
   historyUndo: undo,
@@ -778,7 +828,7 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     wg.inputState.draggedContent = null
     return false
   },
-  
+
   copy,
   cut: copy,
 
@@ -805,34 +855,11 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     return true
   },
 
-  paste(wg, event) {
-    if (wg.state.readOnly || !event.clipboardData) return true
-    let {state} = wg
-    let content = readClipboard(state, event.clipboardData, state.sel.head, wg.inputState.shiftKey)
-    if (wg.state.facet(pasteHandler).some(h => h(wg, event, content ? content.slice : Slice.empty,
-                                                 content ? content.context : [])))
-      return true
-    if (content) { // FIXME proper multi-selection pasting
-      wg.dispatch({
-        changes: {
-          from: state.selection.from,
-          to: state.selection.to,
-          insert: content.slice,
-          fit: content.context
-        },
-        selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.to, 1), -1),
-        userEvent: "input.paste",
-        scrollIntoView: true
-      })
-    }
-    return true
-  },
-
   beforeinput(wg, event) {
     let type = event.inputType
     // Safari will occasionally forget to fire compositionend at the end of a dead-key composition
     if (browser.safari && type == "insertText" && wg.inputState.composing) compositionEnd(wg)
-    if (type == "insertCompositionText" && !wg.inputState.composing)
+    if (compositionInputTypes.has(type) && !wg.inputState.composing)
       wg.inputState.composing = {changes: 0, target: null}
 
     let data: InputEventData = {
@@ -852,7 +879,7 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     // Composition cannot be canceled. Also let through simple
     // insertion and deletion to avoid confusing virtual keyboards and
     // Safari autocapitalize.
-    let allow = type == "insertCompositionText" ||
+    let allow = compositionInputTypes.has(type) ||
       editable && (type == "insertText" || isDeletionInputEvent(type) &&
         data.domRange && inlineContext(wg.inputState.domDoc, data.domRange))
     LOG_input && console.log(`beforeinput ${data.inputType} ${data.domRange ? data.domRange.from + "-" + data.domRange.to : ""} ${
@@ -866,8 +893,8 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     if (!pending || pending.inputType != event.inputType || !pending.domRange) return false
     wg.inputState.pendingInputEvent = null
     let change: ChangeSet.Change | undefined
-    if (event.inputType == "insertCompositionText" || event.inputType == "insertText") {
-      change = {from: pending.domRange.from, to: pending.domRange.to, insert: [Leaf.text(pending.data!)]}
+    if (compositionInputTypes.has(event.inputType) || event.inputType == "insertText") {
+      change = {from: pending.domRange.from, to: pending.domRange.to, insert: [Leaf.text(pending.data || "")]}
     } else if (isDeletionInputEvent(event.inputType)) {
       change = {from: pending.domRange.from, to: pending.domRange.to}
     } else {
