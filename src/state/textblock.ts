@@ -15,6 +15,10 @@ const enum Section {
   Shift = 2,
 }
 
+// FIXME adopt the convenition from CodeMirror, where outward-bias
+// positions at start/end of line are used to indicate a cursor at
+// line start or end, even if there's a non-dominant span next to it.
+
 /// A textblock map contains the text in a textblock as a string, and
 /// can help convert between string offsets and document positions.
 ///

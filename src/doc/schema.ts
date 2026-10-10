@@ -29,7 +29,7 @@ export class Schema {
     readonly docTag: Plot.Tag<null>,
     /// The {@link Node.Role.LineBreak line break} node defined in
     /// this schema, if any.
-    readonly lineBreak: Leaf | null
+    readonly lineBreak: Leaf | null // FIXME make this just always LineBreak?
   ) {
     for (let tag of nodes) this.nodesByName[tag.name] = tag
     for (let mark of marks) this.marksByName[mark.name] = mark

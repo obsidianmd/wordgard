@@ -11,6 +11,6 @@ import {tables} from "wordgard/table"
     codeBlockLanguage({languages: ["JavaScript", "TypeScript", "Markdown", "C++", "Python"]}),
     history(),
     menuBar(),
-    tables(),
+    tables()
   ]
 })

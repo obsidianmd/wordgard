@@ -1,4 +1,4 @@
-import {findAbove} from "./util"
+import {findAbove} from "wordgard/set"
 
 // To represent changed ranges for tile tree updates, we use a format
 // similar to the sections arrays used by ChangeSet, except that:
@@ -65,7 +65,7 @@ export function separateChange(changes: Changes, fromB: number, toB: number) {
   let lenI = 0, dLen = 0
   for (let posB = 0, done = false, i = 0; i < changes.length;) {
     let len = changes[i++], ins = changes[i++], endB = posB + (ins < 0 ? len : ins)
-    if (fromB > endB || toB < posB) {
+    if (fromB >= endB || toB <= posB) {
       result.push(len, ins)
     } else {
       if (ins >= 0) {
@@ -91,22 +91,25 @@ export function isEmpty(changes: Changes) {
 }
 
 // Add the given range to a set of ranges, represented as a flat array
-// of number where each adjacent pairis a [from, to] range.
+// of number where each adjacent pair is a [from, to] range.
 export function addRange(ranges: number[], from: number, to: number) {
-  if (!ranges.length || ranges[ranges.length - 1] < from) {
+  let last
+  if (!ranges.length || (last = ranges[ranges.length - 1]) < from) {
     ranges.push(from, to)
-    return
+  } else if (last == from) {
+    ranges[ranges.length - 1] = to
+  } else {
+    let i = findAbove(ranges, 0, from) & ~1, j = i
+    if (j && ranges[j - 1] == from) {
+      j -= 2
+      from = ranges[j]
+    }
+    while (i < ranges.length && ranges[i] <= to) {
+      from = Math.min(from, ranges[i++])
+      to = Math.max(to, ranges[i++])
+    }
+    ranges.splice(j, i - j, from, to)
   }
-  let i = findAbove(ranges, 0, from) & ~1, j = i
-  if (j && ranges[j - 1] == from) {
-    j -= 2
-    from = ranges[j]
-  }
-  while (i < ranges.length && ranges[i] <= to) {
-    from = Math.min(from, ranges[i++])
-    to = Math.max(to, ranges[i++])
-  }
-  ranges.splice(j, i - j, from, to)
 }
 
 // Join multiple sets of ordered ranges into a single set

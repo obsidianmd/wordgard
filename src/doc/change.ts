@@ -266,38 +266,8 @@ export class ChangeSet {
   /// Compose two change sets, where `other` starts from the document
   /// produced by `this`, into a single change set.
   compose(other: ChangeSet): ChangeSet {
-    let sectionsA = this.sections, dataA = this.data
-    let sectionsB = other.sections, dataB = other.data
-    let sections: number[] = [], data: SectionData[] = []
-    let a = new SectionIter(sectionsA, dataA), b = new SectionIter(sectionsB, dataB)
-    for (let open = false;;) {
-      if (a.done && b.done) {
-        return new ChangeSet(sections, data)
-      } else if (a.ins == 0) { // Deletion in A
-        addSection(sections, data, a.len, 0, a.slice, open)
-        a.next()
-      } else if (b.len == 0 && !b.done) { // Insertion in B
-        addSection(sections, data, 0, b.ins, b.slice, open)
-        b.next()
-      } else if (a.done || b.done) {
-        throw new ValidationError("Mismatched change set lengths")
-      } else {
-        let len = Math.min(a.len2, b.len), sectionLen = sections.length
-        if (a.keep && b.keep) {
-          let mods = combineMods(a.mods, b.mods)
-          addSection(sections, data, len, mods ? -2 : -1, mods, open)
-        } else if (a.keep) {
-          addSection(sections, data, len, b.off ? 0 : b.ins, b.off ? Slice.empty : b.slice, open)
-        } else if (b.keep) {
-          addSection(sections, data, a.off ? 0 : a.len, len, applyModsToSlice(a.slicePart(len), b.mods), open)
-        } else {
-          addSection(sections, data, a.off ? 0 : a.len, b.off ? 0 : b.ins, b.off ? Slice.empty : b.slice, open)
-        }
-        open = (a.ins > len || b.ins >= 0 && b.len > len) && (open || sections.length > sectionLen)
-        a.forward2(len)
-        b.forward(len)
-      }
-    }
+    let {sections, data} = compose(this.sections, other.sections, this.data, other.data)
+    return new ChangeSet(sections, data!)
   }
 
   /// Compute the inverse of this change set. `doc` is the document
@@ -552,6 +522,11 @@ export class ChangeSet {
       pos += len
     }
     return result
+  }
+
+  /// @internal
+  static composeSections(a: ChangeSet.Sections, b: ChangeSet.Sections): ChangeSet.Sections {
+    return compose(a, b).sections
   }
 
   /// Transform two change set starting from the same document over
@@ -821,6 +796,42 @@ function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: bool
         set: ChangeSet.new(sections, data),
         fix: fitter && fitter.finish()
       }
+    }
+  }
+}
+
+function compose(
+  sectionsA: ChangeSet.Sections, sectionsB: ChangeSet.Sections,
+  dataA?: readonly SectionData[], dataB?: readonly SectionData[]
+): {sections: ChangeSet.Sections, data: readonly SectionData[] | null} {
+  let sections: number[] = [], data: SectionData[] | null = dataA ? [] : null
+  let a = new SectionIter(sectionsA, dataA), b = new SectionIter(sectionsB, dataB)
+  for (let open = false;;) {
+    if (a.done && b.done) {
+      return {sections, data}
+    } else if (a.ins == 0) { // Deletion in A
+      addSection(sections, data, a.len, 0, a.slice, open)
+      a.next()
+    } else if (b.len == 0 && !b.done) { // Insertion in B
+      addSection(sections, data, 0, b.ins, b.slice, open)
+      b.next()
+    } else if (a.done || b.done) {
+      throw new ValidationError("Mismatched change set lengths")
+    } else {
+      let len = Math.min(a.len2, b.len), sectionLen = sections.length
+      if (a.keep && b.keep) {
+        let mods = combineMods(a.mods, b.mods)
+        addSection(sections, data, len, (data ? mods : a.ins == -2 || b.ins == -2) ? -2 : -1, mods, open)
+      } else if (a.keep) {
+        addSection(sections, data, len, b.off ? 0 : b.ins, b.off ? Slice.empty : b.slice, open)
+      } else if (b.keep) {
+        addSection(sections, data, a.off ? 0 : a.len, len, data ? applyModsToSlice(a.slicePart(len), b.mods) : null, open)
+      } else {
+        addSection(sections, data, a.off ? 0 : a.len, b.off ? 0 : b.ins, b.off ? Slice.empty : b.slice, open)
+      }
+      open = (a.ins > len || b.ins >= 0 && b.len > len) && (open || sections.length > sectionLen)
+      a.forward2(len)
+      b.forward(len)
     }
   }
 }
@@ -1151,7 +1162,7 @@ class SectionIter {
   off!: number
   ins!: number
 
-  constructor(readonly sections: ChangeSet.Sections, readonly data: readonly SectionData[]) {
+  constructor(readonly sections: ChangeSet.Sections, readonly data?: readonly SectionData[]) {
     this.next()
   }
 
@@ -1174,11 +1185,11 @@ class SectionIter {
   get len2() { return this.ins < 0 ? this.len : this.ins }
 
   get mods() {
-    return this.data[(this.i - 2) >> 1] as readonly Modification[] | null
+    return this.data ? this.data[(this.i - 2) >> 1] as readonly Modification[] | null : null
   }
 
   get slice() {
-    return this.data[(this.i - 2) >> 1] as Slice
+    return this.data ? this.data[(this.i - 2) >> 1] as Slice : Slice.empty
   }
 
   slicePart(len?: number) {
@@ -1197,14 +1208,14 @@ class SectionIter {
   }
 }
 
-function addSection(sections: number[], data: SectionData[],
+function addSection(sections: number[], data: SectionData[] | null,
                     len: number, ins: number, value: SectionData,
                     forceJoin = false) {
   if (len == 0 && ins <= 0) return
   let last = sections.length - 2
   if (last >= 0 && ins <= 0 && ins == sections[last + 1]) {
     // Deletion or preserved section that matches the last element in `sections`
-    let lastValue = data[data.length - 1]
+    let lastValue = data ? data[data.length - 1] : null
     let match = ins == 0 ? true
       : value ? lastValue && compareModifications(lastValue as readonly Modification[], value as readonly Modification[])
       : !lastValue
@@ -1217,10 +1228,10 @@ function addSection(sections: number[], data: SectionData[],
     // Insertion or replacement joinable to another insertion
     sections[last] += len
     sections[last + 1] += ins
-    data[data.length - 1] = (data[data.length - 1] as Slice).concat(value as Slice)
+    if (data) data[data.length - 1] = (data[data.length - 1] as Slice).concat(value as Slice)
   } else {
     sections.push(len, ins)
-    data.push(value)
+    if (data) data.push(value)
   }
 }
 
@@ -1348,9 +1359,11 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
     }
   }
 
-  for (let i = 0; i < context.length; i++) {
-    if (doc.schema.canContain(from.parent.node.type, context[i].type)) {
-      slice = closeSlice(doc.schema, slice, context, i + 1, true)
+  for (let i = -1; i < context.length; i++) {
+    if (i == preferredContext) continue
+    let depth = i < 0 ? preferredContext : i
+    if (doc.schema.canContain(from.parent.node.type, context[depth].type)) {
+      slice = closeSlice(doc.schema, slice, context, depth + 1, true)
       break
     }
   }

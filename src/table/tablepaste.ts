@@ -30,7 +30,7 @@ function pastedCells(schema: Schema, slice: Slice, context: readonly Plot.Tag[])
   if (slice.content.length == 1 && (tok = slice.content[0]).tokenType == Token.Type.Node &&
       tok.type == Table.type) {
     table = tok as Plot
-  } else if (context.length && isTableContent(schema, context[0].type) ||
+  } else if (context.some(tag => isTableContent(schema, tag.type)) ||
              slice.content.some(tok => tok.tokenType != Token.Type.Close && isTableContent(schema, tok.type))) {
     table = fitSlice(schema, Table, slice, context)
   }
