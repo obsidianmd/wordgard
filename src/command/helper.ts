@@ -75,7 +75,7 @@ export function enterInCode(state: GardState): Transaction.Spec | false {
 export function splitTextblock(state: GardState, splitListItem = true): Transaction.Spec | false {
   let {from, to} = state.sel.replacementRange, {schema} = state.doc
   let before = from.textblockParent
-  if (!before || !before.parent) return false
+  if (!before || !before.parent || before.node.type.isolating) return false
   let tokens: Token[] = []
   for (let p = from.parent;; p = p.parent!) {
     tokens.push(Plot.End)
