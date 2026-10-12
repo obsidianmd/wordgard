@@ -344,6 +344,14 @@ describe("joinBackward", () => {
   it("can join from inside an inline node", () => {
     test(doc(p("a"), p(sp(0, "b"))), joinBackward, doc(p("a", sp(0, "b"))))
   })
+
+  it("doesn't join an isolating textblock to the one before it", () => {
+    test(tableDoc(table(tr(td("a"), td(0, "b")))), joinBackward)
+  })
+
+  it("doesn't join an isolating textblock across its parent", () => {
+    test(tableDoc(table(tr(td("a"), td("b")), tr(td(0, "c"), td("d")))), joinBackward)
+  })
 })
 
 describe("joinListItems", () => {
@@ -408,6 +416,14 @@ describe("joinForward", () => {
 
   it("can join from the end of an inline node", () => {
     test(doc(p(sp("a", 0)), p("b")), joinForward, doc(p(sp("a", 0), "b")))
+  })
+
+  it("doesn't join an isolating textblock to the one after it", () => {
+    test(tableDoc(table(tr(td("a", 0), td("b")))), joinForward)
+  })
+
+  it("doesn't join an isolating textblock across its parent", () => {
+    test(tableDoc(table(tr(td("a"), td("b", 0)), tr(td("c"), td("d")))), joinForward)
   })
 
   it("can pull a block out of a multi-block list item", () => {
