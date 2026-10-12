@@ -1168,6 +1168,9 @@ class ContentUpdate {
           hasHack = i
         } else if (next.dom.nodeName == "BR") {
           break
+        } else if (next instanceof TextTile && node.type.preserveWhitespace && next.text.endsWith("\n")) {
+          // A newline that ends the block draws no line after it
+          break
         } else if (next instanceof CompositeTile && !next.isAtom) {
           parent = next
           i = parent.children.length

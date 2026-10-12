@@ -7,7 +7,7 @@ import {builder, basicBuilders, tableSchema} from "./schema.ts"
 import {rDoc, rChangeSpec} from "./generate.ts"
 
 const {DocTile} = Wordgard
-const {doc, p, blockquote, h2, ul, li, br, $img, img, imgAlt, hr, strong, em, table, tr, td} = basicBuilders
+const {doc, p, pre, blockquote, h2, ul, li, br, $img, img, imgAlt, hr, strong, em, table, tr, td} = basicBuilders
 
 type DocTile = InstanceType<typeof DocTile>
 const dummyEditor: Wordgard = {connected: false} as any
@@ -179,6 +179,12 @@ describe("DocTile", () => {
   it("adds breaks for empty textblocks and those ending in breaks", () => {
     let node = render(doc(p(), p("a"), p("b", br)))
     ist(node.dom.innerHTML, "<p><br></p><p>a</p><p>b<br><br></p>")
+  })
+
+  it("adds a break after a newline that ends a whitespace-preserving textblock", () => {
+    let node = render(doc(pre("a\n"), pre("a\nb")))
+    ist(node.dom.innerHTML, "<pre>a\n<br></pre><pre>a\nb</pre>")
+    ist(update(node, {changes: {from: 3, insert: [Leaf.text("c")]}}).dom.innerHTML, "<pre>a\nc</pre><pre>a\nb</pre>")
   })
 
   it("fixes textblock breaks on changes", () => {
