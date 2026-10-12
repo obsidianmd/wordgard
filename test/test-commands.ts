@@ -4,12 +4,14 @@ import {Command, liftEmptyBlock, insertLineBreak, enter,
         wrapBlock, unwrapBlock, toggleList, toggleMark} from "wordgard/command"
 import {Plot, Mark, Leaf, Node, Schema, ChangeSet} from "wordgard/doc"
 import {Paragraph, Heading, Blockquote, BulletList, OrderedList,
-        Emphasis, Strong, Link} from "wordgard/types"
+        Emphasis, Strong, Link, Table, TableRow, BlockCell} from "wordgard/types"
 import {GardState, GardSelection, Transaction} from "wordgard/state"
 import ist from "ist"
-import {basicSchema, basicBuilders, maybeTag, builder, eq} from "./schema.ts"
+import {basicSchema, tableSchema, basicBuilders, maybeTag, builder, eq} from "./schema.ts"
 
-const {p, blockquote, ul, ol, li, pre, br, h1, $img, hr, em, strong} = basicBuilders
+const {p, blockquote, ul, ol, li, pre, br, h1, $img, hr, em, strong, table, tr, td, tdB} = basicBuilders
+const tableDoc = builder(tableSchema)
+const blockTableDoc = builder(Schema.define(basicSchema.elements.concat([Table, TableRow, BlockCell])))
 
 function selectionFrom(cx: GardSelection.Context) {
   let {doc} = cx, a = maybeTag(doc, 0)
@@ -237,6 +239,15 @@ describe("splitTextblock", () => {
   it("can split inline nodes around the cursor", () => {
     test(doc(p("a", sp("b", 0, "c"), "d")), splitTextblock, doc(p("a", sp("b")), p(sp(0, "c"), "d")))
   })
+
+  it("doesn't split an isolating textblock", () => {
+    test(tableDoc(table(tr(td("a", 0, "b"), td("c")))), splitTextblock)
+  })
+
+  it("can split a textblock inside an isolating block", () => {
+    test(blockTableDoc(table(tr(tdB(p("a", 0, "b")), tdB(p("c"))))), splitTextblock,
+         blockTableDoc(table(tr(tdB(p("a"), p(0, "b")), tdB(p("c"))))))
+  })
 })
 
 describe("enter", () => {
@@ -252,6 +263,10 @@ describe("enter", () => {
 
   it("can overwrite a selection", () => {
     test(doc(0, pre("a"), p("b"), 1), runEnter, doc(p(0)))
+  })
+
+  it("doesn't split a table cell with inline content", () => {
+    test(tableDoc(table(tr(td("a", 0, "b"), td("c")))), runEnter)
   })
 })
 
@@ -329,6 +344,14 @@ describe("joinBackward", () => {
   it("can join from inside an inline node", () => {
     test(doc(p("a"), p(sp(0, "b"))), joinBackward, doc(p("a", sp(0, "b"))))
   })
+
+  it("doesn't join an isolating textblock to the one before it", () => {
+    test(tableDoc(table(tr(td("a"), td(0, "b")))), joinBackward)
+  })
+
+  it("doesn't join an isolating textblock across its parent", () => {
+    test(tableDoc(table(tr(td("a"), td("b")), tr(td(0, "c"), td("d")))), joinBackward)
+  })
 })
 
 describe("joinListItems", () => {
@@ -393,6 +416,14 @@ describe("joinForward", () => {
 
   it("can join from the end of an inline node", () => {
     test(doc(p(sp("a", 0)), p("b")), joinForward, doc(p(sp("a", 0), "b")))
+  })
+
+  it("doesn't join an isolating textblock to the one after it", () => {
+    test(tableDoc(table(tr(td("a", 0), td("b")))), joinForward)
+  })
+
+  it("doesn't join an isolating textblock across its parent", () => {
+    test(tableDoc(table(tr(td("a"), td("b", 0)), tr(td("c"), td("d")))), joinForward)
   })
 
   it("can pull a block out of a multi-block list item", () => {

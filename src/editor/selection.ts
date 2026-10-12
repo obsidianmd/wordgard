@@ -170,7 +170,8 @@ export function moveToLineBoundary(wg: Wordgard, start: GardSelection, forward: 
   let {pos} = wg.posAtCoords({x: left ? -1e7 : 1e7, y})
   if (pos < block.start || pos > block.end) {
     let blockRect = (wg.docTile.nodeTile(block.before)!.dom as Element).getBoundingClientRect()
-    pos = wg.posAtCoords({x: left ? blockRect.left : blockRect.right, y}).pos
+    pos = wg.posAtCoords({x: left ? blockRect.left + 1 : blockRect.right - 1, y}).pos
+    if (pos < block.start || pos > block.end) pos = left ? block.start : block.end
   }
   return GardSelection.cursor(pos, forward ? -1 : 1)
 }
