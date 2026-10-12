@@ -12,12 +12,22 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
   let {offset, tile, pos: tilePos} = wg.docTile.resolve(pos, assoc)
 
   if (tile instanceof TextTile) {
-    let from = offset, to = offset
-    let side: -1 | 1 = from == 0 ? -1 : from == tile.length ? 1 : -assoc as -1 | 1
-    if (side < 0) to++
-    else from--
-    return new Coords(tile, flattenV(singleRect(textRange(tile.dom, from, to), side, true),
-                                     (side < 0) == ltrAt(wg.state, pos, assoc)))
+    let block = tile.nearestNode().node!
+    // A position after a newline is on the line that follows it
+    let afterBreak = offset > 0 && tile.text[offset - 1] == "\n" && block.isPlot && block.type.preserveWhitespace
+    if (!afterBreak || offset < tile.length) {
+      if (afterBreak) assoc = 1
+      let side: -1 | 1 = offset == 0 ? -1 : offset == tile.length ? 1 : -assoc as -1 | 1
+      let from = side < 0 ? offset : offset - 1
+      return new Coords(tile, flattenV(singleRect(textRange(tile.dom, from, from + 1), side, true),
+                                       (side < 0) == ltrAt(wg.state, pos, assoc)))
+    }
+    // The text ends in a newline, so look at what follows it, past any wrappers it ends
+    let last: Tile = tile
+    while (last.parent!.isWrapper && last.parent!.lastChild == last) last = last.parent!
+    offset = last.parent!.children.indexOf(last) + 1
+    tile = last.parent!
+    assoc = 1
   }
 
   let tagTile = tile
