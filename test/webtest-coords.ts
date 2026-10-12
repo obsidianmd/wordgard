@@ -113,6 +113,27 @@ describe("coordsAtPos", () => {
     ist(c6.top, c4.top, ">")
     ist(P(wg, c6.left + 2, c6.top + 2), "6>")
   })
+
+  it("puts a position after a newline on the line that follows it", () => {
+    let wg = tempEditor(doc(pre("a\nb\n")))
+    let first = wg.coordsAtPos(2, -1).top
+    for (let side of [-1, 1] as const) {
+      ist(wg.coordsAtPos(3, side).top, first, ">")
+      ist(wg.coordsAtPos(3, side).top, wg.coordsAtPos(4, -1).top)
+      ist(wg.coordsAtPos(5, side).top, wg.coordsAtPos(4, -1).top, ">")
+    }
+  })
+
+  it("puts a position after a newline at the start of right-to-left text that follows", () => {
+    let wg = tempEditor(doc(pre("a\nאב")))
+    ist(wg.coordsAtPos(3, -1).left, wg.coordsAtPos(3, 1).left)
+    ist(wg.coordsAtPos(3, -1).left, wg.coordsAtPos(4, -1).left, ">")
+  })
+
+  it("finds the line after a newline that ends marked text", () => {
+    let wg = tempEditor(doc(pre(strong("a\n"))))
+    ist(wg.coordsAtPos(3, -1).top, wg.coordsAtPos(2, -1).top, ">")
+  })
 })
 
 function s(pos: number, b?: number) {
