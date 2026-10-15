@@ -4,7 +4,7 @@ import {PhraseSet} from "wordgard/phrases"
 import {StyleModule, StyleSpec} from "style-mod"
 
 import {DocTile, updateAttributes} from "./tile"
-import {coordsAtPos} from "./coords"
+import {coordsAtPos, gapCursorRect} from "./coords"
 import {addUpdated} from "./changes"
 import {clipboardOutputFilter, clipboardOutputHTMLFilter, clipboardOutputTextFilter,
         clipboardInputFilter, clipboardInputHTMLFilter, clipboardInputTextFilter,
@@ -253,6 +253,8 @@ export class Wordgard {
 
     let {from, to, assoc} = target
     let rect = this.coordsAtPos(from, from == to ? assoc : 1)
+    // Scroll to where a cursor in a gap between blocks is drawn (Obsidian fork)
+    if (from == to && !this.state.doc.resolve(from).parent.node.inlineContent) rect = gapCursorRect(this, from, assoc)
     if (from != to) {
       let other = this.coordsAtPos(to, -1)
       let left = Math.min(rect.left, other.left), top = Math.min(rect.top, other.top)
