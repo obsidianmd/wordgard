@@ -5,7 +5,7 @@ import browser from "./browser"
 export const clipboardOutputFilter = GardState.Facet.define<(content: Slice, state: GardState) => Slice>()
 export const clipboardOutputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 export const clipboardTextSerializer = GardState.Facet.define<
-  (slice: Slice, context: readonly Plot.Tag[], state: GardState) => string | null
+  (slice: Slice, state: GardState) => string | null
 >()
 export const clipboardOutputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 
@@ -14,17 +14,16 @@ export const clipboardInputHTMLFilter = GardState.Facet.define<(html: string, st
 export const clipboardTextParser = GardState.Facet.define<(text: string, state: GardState) => Slice | null>()
 export const clipboardInputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 
-export function writeClipboard(state: GardState, slice: Slice, context: readonly Plot.Tag[], data: DataTransfer) {
+export function writeClipboard(state: GardState, slice: Slice, data: DataTransfer) {
   for (let filter of state.facet(clipboardOutputFilter)) slice = filter(slice, state)
 
   let includeContext = 0
-  for (let i = 0; i < context.length; i++) {
-    let next = context[i]
-    if (next.type.defining && (!includeContext || next.type != context[includeContext - 1].type)) includeContext = i + 1
+  for (let i = 0; i < slice.context.length; i++) {
+    let next = slice.context[i]
+    if (next.type.defining && (!includeContext || next.type != slice.context[includeContext - 1].type)) includeContext = i + 1
     else if (next.type.defining || !next.isTextblock) break
   }
   let doc = detachedDoc(), dom = serialize.slice(slice, {
-    context,
     includeContext,
     openAttr: "wg-open"
   }).toDOM()
@@ -52,7 +51,7 @@ export function writeClipboard(state: GardState, slice: Slice, context: readonly
 
   let text: string | undefined | null
   for (let serialize of state.facet(clipboardTextSerializer)) {
-    if ((text = serialize(slice, context, state)) != null) break
+    if ((text = serialize(slice, state)) != null) break
   }
   if (text == null) text = slice.textContent({blockSeparator: "\n\n"})
   for (let filter of state.facet(clipboardOutputTextFilter)) text = filter(text, state)
@@ -63,10 +62,10 @@ function isOpen(elt: Element) {
   return (elt.getAttribute("wg-open") || null) as "start" | "end" | "start end" | null
 }
 
-export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean) {
+export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean): Slice | null {
   let html = data.getData("text/html")
   let text = data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list").replace(/\r?\n/g, " ")
-  let slice: Slice, context: readonly Plot.Tag[] = []
+  let slice: Slice
   if (text && (targetContext.parent.node.type.hasRole(Node.Role.Code) || !html || plain)) {
     for (let filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)
     slice = readClipboardText(state, text, targetContext, plain)
@@ -78,13 +77,13 @@ export function readClipboard(state: GardState, data: DataTransfer, targetContex
     if (browser.webkit) restoreReplacedSpaces(dom)
 
     let fromWordgard = dom.querySelector("[wg-content=true]")
-    ;({slice, context} = parse.slice(state.schema, dom, {
+    slice = parse.slice(state.schema, dom, {
       collapseWhiteSpace: !fromWordgard,
       isOpen: fromWordgard ? isOpen : undefined
-    }))
+    })
   }
   for (let filter of state.facet(clipboardInputFilter)) slice = filter(slice, state)
-  return {slice, context}
+  return slice
 }
 
 function readClipboardText(state: GardState, text: string, context: Pos, plain: boolean) {

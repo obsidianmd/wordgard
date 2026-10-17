@@ -75,7 +75,7 @@ export function enterInCode(state: GardState): Transaction.Spec | false {
 export function splitTextblock(state: GardState, splitListItem = true): Transaction.Spec | false {
   let {from, to} = state.sel.replacementRange, {schema} = state.doc
   let before = from.textblockParent
-  if (!before || !before.parent) return false
+  if (!before || !before.parent || before.node.type.isolating) return false
   let tokens: Token[] = []
   for (let p = from.parent;; p = p.parent!) {
     tokens.push(Plot.End)
@@ -161,7 +161,7 @@ export function deleteEmptyPlot(state: GardState, dir: -1 | 1 = -1): Transaction
 export function joinBackward(state: GardState): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
   let {head} = state.sel, block = head.textblockParent
-  if (!block || !head.isAtStart(block)) return false
+  if (!block || !head.isAtStart(block) || block.node.type.isolating) return false
   let scan = block, target = scan.node
   while (!scan.index) {
     if (!scan.parent) return false
@@ -225,7 +225,7 @@ export function joinListItems(state: GardState): Transaction.Spec | false {
 export function joinForward(state: GardState): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
   let {head} = state.sel, block = head.textblockParent
-  if (!block || !head.isAtEnd(block)) return false
+  if (!block || !head.isAtEnd(block) || block.node.type.isolating) return false
   let scan = block, target = scan.node
   for (;;) {
     if (!scan.parent) return false

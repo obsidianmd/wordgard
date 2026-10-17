@@ -70,7 +70,6 @@ export const baseStyles = buildTheme("." + styleID, {
     overflowWrap: "anywhere",
     wordBreak: "break-word", // For Safari, which doesn't support overflow-wrap: anywhere
     boxSizing: "border-box",
-    minHeight: "100%",
     padding: "4px 12px",
     outline: "none",
     caretColor: "transparent",
@@ -167,14 +166,27 @@ export const baseStyles = buildTheme("." + styleID, {
   ".wg-panels-top": { top: "0" },
   ".wg-panels-bottom": { bottom: "0" },
 
-  "wg-dialog": {
-    display: "block",
-    padding: "5px 19px 5px 6px",
-    position: "relative",
-    "& label, & .wg-label": {
-      fontSize: "90%"
-    },
-    borderBottom: "1px solid var(--wg-border-color)"
+  dialog: {
+    font: "var(--wg-dialog-font)",
+    padding: "7px 22px 7px 8px",
+    minWidth: "120px",
+    border: "1px solid var(--wg-border-color)",
+    borderRadius: "5px",
+    boxShadow: "0 0 8px 0 rgba(128, 128, 128, 0.2)",
+    inset: "unset",
+    "&.wg-free-dialog": {
+      position: "fixed"
+    }
+  },
+  "h3.wg-dialog-title": {
+    fontSize: "90%",
+    fontWeight: "bold",
+    textAlign: "center",
+    margin: "0 0 0.8em"
+  },
+
+  "dialog label, dialog .wg-label": {
+    fontSize: "90%"
   },
   ".wg-dialog-close": {
     position: "absolute",
@@ -204,4 +216,23 @@ export const baseStyles = buildTheme("." + styleID, {
       backgroundColor: "#222"
     }
   },
+
+  ".wg-key-help": {
+    padding: "15px",
+    maxWidth: "350px"
+  },
+  ".wg-key-list": {
+    outline: "none",
+    maxHeight: "calc(min(70vh, 300px))",
+    overflowY: "auto",
+    display: "grid",
+    gridTemplateColumns: "max-content auto",
+    gap: "8px 15px",
+    margin: "0 0 0.5em",
+    "& h4": {
+      gridColumn: "span 2",
+      margin: "0.5em 0",
+      fontSize: "110%"
+    }
+  }
 }, lightDarkIDs)

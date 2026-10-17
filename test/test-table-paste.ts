@@ -15,11 +15,10 @@ function selFor(doc: Plot.Doc): GardSelection | undefined {
   return CellSelection.normalize(range, doc) || range
 }
 
-function test(doc: Plot.Doc, content: Token[] | {slice: readonly Token[], context: readonly Plot.Tag[]},
-              expect: Plot.Doc | null) {
+function test(doc: Plot.Doc, content: Token[] | Slice, expect: Plot.Doc | null) {
   let state = GardState.create({doc, selection: selFor(doc), config: CellSelection})
-  let [slice, context] = Array.isArray(content) ? [Slice.of(content), []] : [Slice.of(content.slice), content.context]
-  let tr = handleTablePaste(state, slice, context)
+  let slice = Array.isArray(content) ? Slice.of(content, []) : content
+  let tr = handleTablePaste(state, slice)
   if (expect) {
     ist(tr)
     state = state.update(tr as Transaction.Spec).state
@@ -59,7 +58,7 @@ describe("Table paste", () => {
 
   it("recognizes opened cells as table content", () => test(
     doc(table(tr(td(0, "a"), td("b")))),
-    {slice: [Leaf.text("x"), Token.End, Token.End, TableRow, Cell, Leaf.text("y")], context: [Cell, TableRow]},
+    Slice.of([Leaf.text("x"), Token.End, Token.End, TableRow, Cell, Leaf.text("y")], [Cell, TableRow]),
     doc(table(tr(td(0, "x"), td("b")), tr(td("y", 1), td())))))
 
   it("recognizes a full table as table content", () => test(

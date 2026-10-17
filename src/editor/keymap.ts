@@ -3,6 +3,7 @@ import {Command, enter, deleteUnit, deleteWord, deleteToLineEnd, killToLineEnd, 
         moveByUnit, moveToLineSide, moveToTextblockSide, moveToDocSide, moveByWord, moveByLine, moveByPage,
         selectAll, undo, redo} from "wordgard/command"
 import {GardState} from "wordgard/state"
+import {PhraseSet, phrases} from "wordgard/phrases"
 import {type Wordgard} from "./editor"
 import browser from "./browser"
 
@@ -26,9 +27,8 @@ import browser from "./browser"
 /// Use lowercase letters to refer to letter keys. You can use
 /// `"Space"` as an alias for the `" "` name.
 ///
-/// Modifiers can be given in any order. `Shift-` (or `s-`), `Alt-` (or
-/// `a-`), `Ctrl-` (or `c-` or `Control-`) and `Cmd-` (or `m-` or
-/// `Meta-`) are recognized.
+/// Modifiers can be given in any order. `Shift-`, `Alt-`, `Ctrl-` and
+/// `Cmd-` (or `Meta-`) are recognized.
 ///
 /// You can use `Mod-` as a shorthand for `Cmd-` on Mac and `Ctrl-` on
 /// other platforms. So `Mod-b` is `Ctrl-b` on Linux but `Cmd-b` on
@@ -84,25 +84,25 @@ export namespace KeyBinding {
     /// When this property is present, the function is called for every
     /// key, and may return true to indicate the key was handled.
     any?: (wg: Wordgard, event: KeyboardEvent) => boolean
-    /// By default, key bindings apply when focus is on the editor
-    /// content (the `"editor"` scope). Some extensions, mostly those
-    /// that define their own panels, might want to allow registering
-    /// bindings local to that panel. Such bindings should use a custom
-    /// scope name. You may also assign multiple scope names to a
-    /// binding, separating them by spaces.
-    scope?: string
     /// By default, all keys events for which a handler exists have
     /// their `preventDefault` called, even if no handler returns
     /// true. You can set this to true to disable that behavior.
     allowDefault?: boolean
+    /// A textual description of what this key does. Will be used by
+    /// {@link showKeyBindings} to create a list of active bindings.
+    description?: PhraseSet.Ref | string
+    /// A textual description of what the shifted variant of this key
+    /// does.
+    shiftDescription?: PhraseSet.Ref | string
+    /// The group under which the description of this key should be
+    /// organized in the list of bindings.
+    group?: Group
   }
 
-  /// Run the key handlers registered for a given scope. The event
-  /// object should be a `"keydown"` event. Returns true if any of the
-  /// handlers handled it.
-  export function runScopeHandlers(wg: Wordgard, event: KeyboardEvent, scope: string) {
-    let map = getKeymap(wg.state.facet(KeyBinding.source), wg.state.facet(useDefaultKeymap))
-    return runHandlers(map, event, wg, scope)
+  /// @internal
+  export function handle(wg: Wordgard, event: KeyboardEvent) {
+    let map = getKeymap(wg.state)
+    return runHandlers(map, event, wg)
   }
 
   /// Facet used for registering key bindings. Extension precedence
@@ -117,6 +117,37 @@ export namespace KeyBinding {
   export const useDefaultKeymap = GardState.Facet.define<boolean, boolean>({
     combine: input => input.length ? input[0] : true
   })
+
+  /// Key binding groups are used to {@link KeyBinding.Spec.group
+  /// organize} key bindings in the user-presented {@link
+  /// showKeyBindings list} of bindings.
+  export class Group {
+    private constructor(
+      /// The description given for this group.
+      readonly description: PhraseSet.Ref | string,
+      /// A sorting rank.
+      readonly rank: number
+    ) {}
+
+    /// Define a key binding group.
+    static define(spec: {
+      description: PhraseSet.Ref | string,
+      rank?: number
+    }) {
+      return new Group(spec.description, spec.rank || 1000)
+    }
+
+    static Inline = new Group(phrases.ref("group_inline"), 20)
+    static Block = new Group(phrases.ref("group_block"), 30)
+    static History = new Group(phrases.ref("group_history"), 70)
+  }
+
+  /// Look for a key associated with the given description in the
+  /// state's key bindings, and if found, return its key name as a
+  /// string.
+  export function lookupByDescription(state: GardState, desc: string | PhraseSet.Ref) {
+    return getDescMap(state).get(desc) || null
+  }
 
   /// The editor's set of default key bindings. Binds the following
   /// keys. Most cursor motion bindings include a `Shift-` variant
@@ -169,7 +200,8 @@ export namespace KeyBinding {
   ///  - `Ctrl-y` to {@link command.yankKilled}
   export const defaultKeymap: readonly KeyBinding[] = ([
     {key: "Enter", run: enter},
-    {key: "Shift-Enter", run: insertLineBreak},
+    {key: "Shift-Enter", run: insertLineBreak,
+     description: phrases.ref("insert_break"), group: Group.Inline},
     {key: "Backspace", run: Command.bind(deleteUnit, "backward")},
     {key: "Delete", run: Command.bind(deleteUnit, "forward")},
     {key: "Ctrl-Backspace", mac: "Alt-Backspace", run: Command.bind(deleteWord, "backward")},
@@ -213,9 +245,9 @@ export namespace KeyBinding {
     {key: "Mod-End", run: Command.bind(moveToDocSide, {side: "end"}),
      shift: Command.bind(moveToDocSide, {side: "end", extend: true})},
     {key: "Mod-a", run: selectAll},
-    {key: "Mod-z", run: undo},
-    {key: "Mod-y", mac: "Mod-Shift-z", run: redo},
-    {linux: "Ctrl-Shift-z", run: redo},
+    {key: "Mod-z", run: undo, description: phrases.ref("undo"), group: Group.History},
+    {key: "Mod-y", mac: "Mod-Shift-z", run: redo, description: phrases.ref("redo"), group: Group.History},
+    {linux: "Ctrl-Shift-z", run: redo, description: phrases.ref("redo"), group: Group.History},
     // MacOS Emacs-ish bindings
     {mac: "Ctrl-b", run: Command.bind(moveByUnit, {dir: "backward"}),
      shift: Command.bind(moveByUnit, {dir: "backward", extend: true})},
@@ -242,9 +274,9 @@ export namespace KeyBinding {
 
 type PlatformName = "mac" | "win" | "linux" | "key"
 
-const currentPlatform: PlatformName = browser.mac ? "mac" : browser.windows ? "win" : browser.linux ? "linux" : "key"
+export const currentPlatform: PlatformName = browser.mac ? "mac" : browser.windows ? "win" : browser.linux ? "linux" : "key"
 
-function normalizeKeyName(name: string, platform: PlatformName): string {
+export function normalizeKeyName(name: string, platform: PlatformName): string {
   const parts = name.split(/-(?!$)/)
   let result = parts[parts.length - 1]
   if (result == "Space") result = " "
@@ -252,24 +284,24 @@ function normalizeKeyName(name: string, platform: PlatformName): string {
   let alt, ctrl, shift, meta
   for (let i = 0; i < parts.length - 1; ++i) {
     const mod = parts[i]
-    if (/^(cmd|meta|m)$/i.test(mod)) meta = true
-    else if (/^a(lt)?$/i.test(mod)) alt = true
-    else if (/^(c|ctrl|control)$/i.test(mod)) ctrl = true
-    else if (/^s(hift)?$/i.test(mod)) shift = true
-    else if (/^mod$/i.test(mod)) { if (platform == "mac") meta = true; else ctrl = true }
+    if (mod == "Cmd" || mod == "Meta") meta = true
+    else if (mod == "Alt") alt = true
+    else if (mod == "Ctrl") ctrl = true
+    else if (mod == "Shift") shift = true
+    else if (mod == "Mod") { if (platform == "mac") meta = true; else ctrl = true }
     else throw new Error("Unrecognized modifier name: " + mod)
   }
   if (alt) result = "Alt-" + result
   if (ctrl) result = "Ctrl-" + result
-  if (meta) result = "Meta-" + result
+  if (meta) result = (platform == "mac" ? "Meta-" : "Cmd-") + result
   if (shift) result = "Shift-" + result
   return result
 }
 
-function modifiers(name: string, event: KeyboardEvent) {
+function modifiers(name: string, event: KeyboardEvent, platform: PlatformName) {
   if (event.altKey) name = "Alt-" + name
   if (event.ctrlKey) name = "Ctrl-" + name
-  if (event.metaKey) name = "Meta-" + name
+  if (event.metaKey) name = (platform == "mac" ? "Cmd-" : "Meta-") + name
   if (event.shiftKey) name = "Shift-" + name
   return name
 }
@@ -289,11 +321,13 @@ class NormalizedBinding {
   ) {}
 }
 
-type Keymap = Record<string, NormalizedBinding[]>
+type Keymap = NormalizedBinding[]
 
 const keymapCache = new WeakMap<readonly KeyBinding[], {map: Keymap, deflt: boolean}>()
 
-function getKeymap(bindings: readonly KeyBinding[], addDefault: boolean) {
+function getKeymap(state: GardState) {
+  let bindings = state.facet(KeyBinding.source)
+  let addDefault = state.facet(KeyBinding.useDefaultKeymap)
   let found = keymapCache.get(bindings)
   if (!found || found.deflt != addDefault) {
     found = {
@@ -305,51 +339,66 @@ function getKeymap(bindings: readonly KeyBinding[], addDefault: boolean) {
   return found.map
 }
 
+const lookupCache = new WeakMap<readonly KeyBinding[], Map<string | PhraseSet.Ref, string>>()
+
+function getDescMap(state: GardState) {
+  let bindings = state.facet(KeyBinding.source)
+  let map = lookupCache.get(bindings)
+  if (!map) {
+    lookupCache.set(bindings, map = new Map)
+    for (let binding of bindings.concat(state.facet(KeyBinding.useDefaultKeymap) ? KeyBinding.defaultKeymap : [])) {
+      let {description, shiftDescription} = binding.spec
+      if (description || shiftDescription) {
+        let name = binding.spec[currentPlatform] || binding.spec.key
+        if (name && description)
+          map.set(description, normalizeKeyName(name, currentPlatform))
+        if (name && shiftDescription)
+          map.set(shiftDescription, "Shift-" + normalizeKeyName(name, currentPlatform))
+      }
+    }
+  }
+  return map
+}
+
 function bind(run: Command.Bound | Command): (wg: Wordgard) => boolean {
   return (wg: Wordgard) => Command.dispatch(wg, run)
 }
 
-function buildKeymap(bindings: readonly KeyBinding[], platform: PlatformName) {
-  let scopes: Keymap = Object.create(null)
+function buildKeymap(bindings: readonly KeyBinding[], platform: PlatformName): Keymap {
+  let map: Keymap = []
 
   for (let {spec: b} of bindings) {
     let baseFlags = (b.allowDefault ? BindingFlag.AllowDefault : 0)
-    for (let scope of b.scope ? b.scope.split(" ") : ["editor"]) {
-      let array = scopes[scope] || (scopes[scope] = [])
-      let key = b[platform] || b.key
-      if (b.char) {
-        if (key) throw new Error("A key binding may not provide both a char and a key field")
-        if (b.shift) throw new Error("Shift-modified bindings are not supported for char bindings")
-        array.push(new NormalizedBinding(baseFlags | BindingFlag.Char, b.char, bind(b.run)))
-      }
-      if (key)
-        array.push(new NormalizedBinding(baseFlags | BindingFlag.Key, normalizeKeyName(key, platform), bind(b.run)))
-      if (key && b.shift)
-        array.push(new NormalizedBinding(baseFlags | BindingFlag.Key, normalizeKeyName("Shift-" + key, platform), bind(b.shift)))
-      if (b.any)
-        array.push(new NormalizedBinding(BindingFlag.Any, "", b.any))
+    let key = b[platform] || b.key
+    if (b.char) {
+      if (key) throw new Error("A key binding may not provide both a char and a key field")
+      if (b.shift) throw new Error("Shift-modified bindings are not supported for char bindings")
+      map.push(new NormalizedBinding(baseFlags | BindingFlag.Char, b.char, bind(b.run)))
     }
+    if (key)
+      map.push(new NormalizedBinding(baseFlags | BindingFlag.Key, normalizeKeyName(key, platform), bind(b.run)))
+    if (key && b.shift)
+      map.push(new NormalizedBinding(baseFlags | BindingFlag.Key, normalizeKeyName("Shift-" + key, platform), bind(b.shift)))
+    if (b.any)
+      map.push(new NormalizedBinding(BindingFlag.Any, "", b.any))
   }
-  return scopes
+  return map
 }
 
-function runHandlers(map: Keymap, event: KeyboardEvent, wg: Wordgard, scope: string): boolean {
-  let handlers = map[scope]
-  if (!handlers) return false
-  
+function runHandlers(map: Keymap, event: KeyboardEvent, wg: Wordgard): boolean {
   let key = event.key, charCode = key.codePointAt(0)!
   let altGr = event.getModifierState("AltGraph"), fromCode = charKeyCodes[event.keyCode]
   let isChar = codePointSize(charCode) == key.length
   let char = isChar ? String.fromCodePoint(charCode) : null
-  let base = modifiers(key, event)
+  let base = modifiers(key, event, currentPlatform)
   // If the key used (not the physical key, but the remapped base key)
   // doesn't match the character put in event.key (due to remapping in
   // an international keyboard, or shift status), match against that
   // as well.
-  let fallback = isChar && !altGr && fromCode && fromCode != base ? modifiers(fromCode, event) : null
+  let fallback = isChar && !altGr && fromCode && fromCode != base ? modifiers(fromCode, event, currentPlatform) : null
 
   let handled = false, didMatch = false, allowDefault = false
-  for (let binding of handlers) {
+  for (let binding of map) {
     let matched = ((binding.flags & BindingFlag.Char) && (altGr || !event.ctrlKey && !event.metaKey) && binding.name == char) ||
       ((binding.flags & BindingFlag.Key) && (binding.name == base || binding.name == fallback)) ||
       (binding.flags & BindingFlag.Any)

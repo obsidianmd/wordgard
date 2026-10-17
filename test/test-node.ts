@@ -1,5 +1,5 @@
 import ist from "ist"
-import {Plot, Leaf, Node} from "wordgard/doc"
+import {Plot, Leaf, Node, Slice} from "wordgard/doc"
 import {Paragraph, Image} from "wordgard/types"
 import {basicSchema as schema, basicBuilders, tag, eq} from "./schema.ts"
 const {doc, blockquote, p, h1, li, ul, hr, em, strong, code, $img, $a} = basicBuilders
@@ -83,7 +83,7 @@ describe("Node", () => {
     })
 
     it("works on slices", () => {
-      ist(doc(p("abc"), blockquote(p("def"))).slice(2, 9).textContent(), "bc\nde")
+      ist(Slice.of(doc(p("abc"), blockquote(p("def"))).slice(2, 9)).textContent(), "bc\nde")
     })
   })
 

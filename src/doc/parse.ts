@@ -60,7 +60,7 @@ export namespace parse {
       }
     }
     emitTokens(top.children, true, true)
-    return {slice: Slice.of(tokens), context}
+    return Slice.of(tokens, context)
   }
 
   /// Parse rules describe how DOM constructs should map to Wordgard

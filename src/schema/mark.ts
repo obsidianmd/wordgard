@@ -16,6 +16,8 @@ export namespace strong {
   export const keyBinding = KeyBinding.of({
     key: "Mod-b",
     run: Command.bind(toggleMark, Strong),
+    description: phrases.ref("toggle_strong"),
+    group: KeyBinding.Group.Inline
   })
 
   /// A menu button that toggles strong emphasis.
@@ -42,6 +44,8 @@ export namespace emphasis {
   export const keyBinding = KeyBinding.of({
     key: "Mod-i",
     run: Command.bind(toggleMark, Emphasis),
+    description: phrases.ref("toggle_em"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button that toggles emphasis.
@@ -68,6 +72,8 @@ export namespace code {
   export const keyBinding = KeyBinding.of({
     key: "Mod-`",
     run: Command.bind(toggleMark, Code),
+    description: phrases.ref("toggle_code"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button for toggling code font.
@@ -93,7 +99,9 @@ export namespace underline {
   /// Binds `Mod-u` to toggle the underline mark.
   export const keyBinding = KeyBinding.of({
     key: "Mod-u",
-    run: Command.bind(toggleMark, Underline)
+    run: Command.bind(toggleMark, Underline),
+    description: phrases.ref("toggle_underline"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button for toggling underline.
@@ -120,6 +128,8 @@ export namespace strikethrough {
   export const keyBinding = KeyBinding.of({
     key: "Mod-/",
     run: Command.bind(toggleMark, Strikethrough),
+    description: phrases.ref("toggle_strikethrough"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button that toggles the strikethrough mark.
@@ -146,6 +156,8 @@ export namespace superscript {
   export const keyBinding = KeyBinding.of({
     key: "Mod-.",
     run: Command.bind(toggleMark, Superscript),
+    description: phrases.ref("toggle_super"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button for toggling superscript.
@@ -172,6 +184,8 @@ export namespace subscript {
   export const keyBinding = KeyBinding.of({
     key: "Mod-,",
     run: Command.bind(toggleMark, Subscript),
+    description: phrases.ref("toggle_sub"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button for toggling subscript.

@@ -3,6 +3,8 @@ import {PhraseSet} from "wordgard/phrases"
 import {Command, Menu} from "wordgard/command"
 import {Panel} from "./panel"
 import {Wordgard} from "./editor"
+import {KeyBinding} from "./keymap"
+import {PositioningHint} from "./dialog"
 
 interface BarElement {
   dom: Element
@@ -67,11 +69,19 @@ class BarButton implements BarElement {
     this.dom.type = "button"
     this.dom.tabIndex = -1
     labelButton(wg, this.dom, item.label)
-    if (item.description) {
-      let desc = typeof item.description == "function" ? item.description(wg.state) : item.description
-      this.dom.title = desc
-      this.dom.setAttribute("aria-label", desc)
-    }
+    this.setDesc(wg)
+  }
+
+  setDesc(wg: Wordgard) {
+    let {item: {label, description}} = this
+    let someDesc = description || (typeof label == "string" || typeof label == "function" ? label : null)
+    let key = someDesc ? KeyBinding.lookupByDescription(wg.state, someDesc) : null
+    let desc = typeof someDesc == "function" ? someDesc(wg.state) : someDesc
+    if (description) this.dom.setAttribute("aria-label", desc!)
+    else this.dom.removeAttribute("aria-label")
+    if (key) this.dom.setAttribute("aria-keyshortcuts", key)
+    else this.dom.removeAttribute("aria-keyshortcuts")
+    this.dom.title = desc ? desc + (key ? ` (${key})` : "") : key || ""
   }
 
   get focusDOM() { return this.dom }
@@ -100,7 +110,9 @@ class BarButton implements BarElement {
   get children() { return null }
 
   run(wg: Wordgard) {
-    Command.dispatch(wg, this.item.run)
+    PositioningHint.runWith(() => this.dom.getBoundingClientRect(), () => {
+      Command.dispatch(wg, this.item.run)
+    })
   }
 }
 
@@ -278,6 +290,9 @@ class MenuBar {
       this.init()
     } else {
       this.updateElts(update, this.selection)
+      if (update.startState.facet(KeyBinding.source) != update.state.facet(KeyBinding.source)) {
+        for (let elt of this.elts) if (elt instanceof BarButton) elt.setDesc(update.editor)
+      }
     }
   }
 
