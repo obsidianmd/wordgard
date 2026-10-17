@@ -21,9 +21,9 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
   }
 
   let tagTile = tile
-  while (!tagTile.node) tagTile = tagTile.parent!
+  while (!tagTile.tag) tagTile = tagTile.parent!
   // Return a horizontal line in block context
-  let horizontal = tagTile.node.isPlot && tagTile.node.type.orientation == "column"
+  let horizontal = tagTile.tag.isPlot && tagTile.tag.type.orientation == "column"
 
   if (tile instanceof WidgetTile) {
     let after = pos > tilePos + tile.length / 2

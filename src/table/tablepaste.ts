@@ -7,13 +7,13 @@ import {TableMap} from "./tablemap"
 import {CellSelection} from "./cellselection"
 import {tableContext, cellTag} from "./tablecommands"
 
-function fitSlice(schema: Schema, parent: Plot.Tag, slice: Slice, context: readonly Plot.Tag[]) {
+function fitSlice(schema: Schema, parent: Plot.Tag, slice: Slice) {
   let wrap = schema.findWrapping(schema.docTag.type, parent.type)
   if (!wrap) return null
   let content = [schema.createAndFill(parent)]
   for (let i = wrap.length - 1; i >= 0; i--) content = [wrap[i].create(content)]
   let doc = schema.doc(content)
-  let changes = ChangeSet.create(doc, {from: wrap.length + 1, to: doc.length - wrap.length - 1, insert: slice, fit: context})
+  let changes = ChangeSet.create(doc, {from: wrap.length + 1, to: doc.length - wrap.length - 1, insert: slice, fit: true})
   doc = changes.apply(doc)
   let node = doc.length > wrap.length && doc.plotAt(wrap.length)
   return node && node.type == parent.type ? node : null
@@ -25,14 +25,14 @@ function isTableContent(schema: Schema, type: Node.Type) {
 
 // Get a rectangular area of cells from a slice, or null if the outer
 // nodes of the slice aren't table cells or rows.
-function pastedCells(schema: Schema, slice: Slice, context: readonly Plot.Tag[]) {
+function pastedCells(schema: Schema, slice: Slice) {
   let table: Plot | null = null, tok
   if (slice.content.length == 1 && (tok = slice.content[0]).tokenType == Token.Type.Node &&
       tok.type == Table.type) {
     table = tok as Plot
-  } else if (context.length && isTableContent(schema, context[0].type) ||
+  } else if (slice.context.some(tag => isTableContent(schema, tag.type)) ||
              slice.content.some(tok => tok.tokenType != Token.Type.Close && isTableContent(schema, tok.type))) {
-    table = fitSlice(schema, Table, slice, context)
+    table = fitSlice(schema, Table, slice)
   }
   return table && ensureRectangular(schema, table.content.map(row => (row as Plot).content))
 }
@@ -218,13 +218,13 @@ export function insertCells(
 }
 
 /// @hidden exported for testing
-export function handleTablePaste(state: GardState, slice: Slice, context: readonly Plot.Tag[], drop?: number) {
+export function handleTablePaste(state: GardState, slice: Slice, drop?: number) {
   if (state.readOnly) return false
   let {schema} = state.doc
   if (drop == null && state.selection instanceof CellSelection) {
-    let cells = pastedCells(schema, slice, context)
+    let cells = pastedCells(schema, slice)
     if (!cells) {
-      let single = fitSlice(schema, cellTag(schema), slice, context)
+      let single = fitSlice(schema, cellTag(schema), slice)
       if (!single) return false
       cells = {width: 1, height: 1, rows: [[single]]}
     }
@@ -234,22 +234,22 @@ export function handleTablePaste(state: GardState, slice: Slice, context: readon
                        clipCells(cells, rect.endCol - rect.startCol, rect.endRow - rect.startRow), "paste")
   } else {
     let cx = tableContext(state, drop), cells
-    if (!cx || !(cells = pastedCells(schema, slice, context))) return false
+    if (!cx || !(cells = pastedCells(schema, slice))) return false
     let rect = cx.map.cellRect(cx.cells[0])
     return insertCells(state, cx.map, rect.startCol, rect.startRow, cells, drop == null ? "drop" : "paste")
   }
 }
 
-export const tablePasteHandler = Wordgard.pasteHandler.of((wg, _event, slice, context) => {
-  let tr = handleTablePaste(wg.state, slice, context)
+export const tablePasteHandler = Wordgard.pasteHandler.of((wg, _event, slice) => {
+  let tr = handleTablePaste(wg.state, slice)
   return tr && (wg.dispatch(tr), true)
 })
 
 // FIXME is it ridiculously hard to grab a multi-cell selection for
 // dragging. May require completely custom handling.
-export const tableDropHandler = Wordgard.dropHandler.of((wg, _event, pos, move, slice, context) => {
+export const tableDropHandler = Wordgard.dropHandler.of((wg, _event, pos, move, slice) => {
   if (wg.state.readOnly) return false
-  let tr = handleTablePaste(wg.state, slice, context, pos)
+  let tr = handleTablePaste(wg.state, slice, pos)
   if (!tr) return false
   if (move) {
     let clear: ChangeSet.Spec[] = []

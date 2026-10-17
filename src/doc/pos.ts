@@ -231,9 +231,9 @@ export namespace Pos {
     get isLast() { return !this.parent || this.index == this.parent.node.content.length - 1 }
 
     /// The node before this one, if any.
-    get nextSibling() { return this.isLast ? null : this.parent!.node.content[this.index + 1] }
+    get nextSibling(): _Node | null { return this.isLast ? null : this.parent!.node.content[this.index + 1] }
     /// The node after this node, if any.
-    get previousSibling() { return this.isFirst ? null : this.parent!.node.content[this.index - 1] }
+    get previousSibling(): _Node | null { return this.isFirst ? null : this.parent!.node.content[this.index - 1] }
   }
 
   /// Subclass of {@link Pos.Node} that points at a plot node.

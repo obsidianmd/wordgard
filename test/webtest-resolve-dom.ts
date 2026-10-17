@@ -1,4 +1,4 @@
-import {Wordgard, Widget, Decoration, PointSet} from "wordgard/editor"
+import {Wordgard, Widget, Decoration} from "wordgard/editor"
 import {GardState} from "wordgard/state"
 import {Plot, Leaf, Elt} from "wordgard/doc"
 import {Paragraph} from "wordgard/types"
@@ -49,11 +49,11 @@ describe("DocTile.resolve", () => {
   }
 
   it("resolves properly between widgets", () => {
-    let set = PointSet.create([
-      [3, Decoration.Point.widget(Widget.create({render: () => span("A")}), {side: -1})],
-      [3, Decoration.Point.widget(Widget.create({render: () => span("B")}), {side: 0})],
-      [3, Decoration.Point.widget(Widget.create({render: () => span("C")}), {side: 0})],
-      [3, Decoration.Point.widget(Widget.create({render: () => span("D")}), {side: 1})]
+    let set = Decoration.Point.set([
+      [Decoration.Point.widget(Widget.create({render: () => span("A")}), {side: -1}), 3],
+      [Decoration.Point.widget(Widget.create({render: () => span("B")}), {side: 0}), 3],
+      [Decoration.Point.widget(Widget.create({render: () => span("C")}), {side: 0}), 3],
+      [Decoration.Point.widget(Widget.create({render: () => span("D")}), {side: 1}), 3]
     ])
     let node = render(doc(p("abcd")), Decoration.Point.source.of(() => set))
     isIn(node.resolve(3, -1), "P", 2)
@@ -74,11 +74,11 @@ describe("DocTile.resolve", () => {
   })
 
   it("picks the right side of widgets on wrapper boundaries", () => {
-    let set = PointSet.create([
-      [1, Decoration.Point.widget(Widget.create({render: () => span("A")}), {side: -1})],
-      [2, Decoration.Point.widget(Widget.create({render: () => span("B")}), {side: 1})],
-      [3, Decoration.Point.widget(Widget.create({render: () => span("C")}), {side: 1})],
-      [4, Decoration.Point.widget(Widget.create({render: () => span("D")}), {side: -1})]
+    let set = Decoration.Point.set([
+      [Decoration.Point.widget(Widget.create({render: () => span("A")}), {side: -1}), 1],
+      [Decoration.Point.widget(Widget.create({render: () => span("B")}), {side: 1}), 2],
+      [Decoration.Point.widget(Widget.create({render: () => span("C")}), {side: 1}), 3],
+      [Decoration.Point.widget(Widget.create({render: () => span("D")}), {side: -1}), 4]
     ])
     let node = render(doc(p(strong("a"), "b", strong("c"), "d")), Decoration.Point.source.of(() => set))
     isIn(node.resolve(1, -1), "P", 1)

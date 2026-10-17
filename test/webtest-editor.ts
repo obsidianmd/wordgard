@@ -110,4 +110,18 @@ describe("Wordgard", () => {
     wg.flush()
     ist(log.join("/"), "disconnect a/connect b/connect c/disconnect b/disconnect c")
   })
+
+  it("fires an update with a geometryChanged flag when styling changes content height", () => {
+    let geoChanges = 0
+    let wg = tempEditor(doc(p("a"), p("b")), [
+      Wordgard.theme({"body.c1 & p": { margin: "50px" }}),
+      Wordgard.updateListener.of(u => { if (u.geometryChanged) geoChanges++ })
+    ])
+    wg.flush()
+    ist(geoChanges, 0)
+    document.body.classList.add("c1")
+    wg.flush()
+    document.body.classList.remove("c1")
+    ist(geoChanges, 1)
+  })
 })
