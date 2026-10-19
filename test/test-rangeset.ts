@@ -110,4 +110,10 @@ describe("RangeSet", () => {
     setA.compareRange(0, setB, 1, chunkSize * 3, () => ist(false))
     ist(accessCount, 10, "<")
   })
+
+  it("moves a cursor over several sets with goto", () => {
+    let cursor = RangeSet.cursor([RangeSet.create([[V.a, 2, 4]]), RangeSet.create([[V.b, 9, 16]])])
+    cursor.goto(9)
+    ist(`${cursor.value!.name}@${cursor.from}-${cursor.to}`, "b@9-16")
+  })
 })
