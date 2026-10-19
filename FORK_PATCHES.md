@@ -25,3 +25,4 @@ After each upstream sync, run `git cherry -v upstream/main main` as an advisory 
 | WG-005 | `f551366bdfd684e6160cf8aaee8e8c708ff05292` | Probe one pixel inside the block in `moveToLineBoundary`, so End on a wrapped table cell's line stays on that line | [report](https://code.haverbeke.berlin/wordgard/wordgard/issues/90) | `active` | |
 | WG-007 | `f368c568e8fe79d9f4931bfc3553d155d3d23286` | Draw the cursor in a gap between blocks upright, centered in the gap, instead of as a horizontal line | none: Obsidian-specific | `permanent` | |
 | WG-008 | `f5fea1d14e8c7b98fbffa505a8cc62b848807671` | Refresh `from`, `to` and `value` in `HeapCursor.goto`, so a cursor over several sets reports where it moved | not filed yet | `active` | |
+| WG-009 | `4bc35b117d050ce0b08e81211d350021f8664ddb` | Search the chunk that holds the position, by its relative offsets, in `PointSet.at` | not filed yet | `active` | |

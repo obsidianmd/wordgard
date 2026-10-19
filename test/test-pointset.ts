@@ -114,4 +114,12 @@ describe("PointSet", () => {
     cursor.goto(9)
     ist(`${cursor.value!.name}@${cursor.from}`, "b@9")
   })
+
+  it("finds the value at a position", () => {
+    let set = PointSet.create([[V.a, 0], [V.b, 2], [V.c, 5]])
+    ist([0, 1, 2, 5, 6].map(pos => set.at(pos)?.name ?? "-").join(" "), "a - b c -")
+    let big = PointSet.create<V>(add => { for (let i = 0; i < 2000; i++) add(new V("v" + i), i * 2) })
+    ist(big.at(1500)!.name, "v750")
+    ist(big.at(1501), undefined)
+  })
 })
