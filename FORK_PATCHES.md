@@ -26,3 +26,4 @@ After each upstream sync, run `git cherry -v upstream/main main` as an advisory 
 | WG-007 | `f368c568e8fe79d9f4931bfc3553d155d3d23286` | Draw the cursor in a gap between blocks upright, centered in the gap, instead of as a horizontal line | none: Obsidian-specific | `permanent` | |
 | WG-008 | `f5fea1d14e8c7b98fbffa505a8cc62b848807671` | Refresh `from`, `to` and `value` in `HeapCursor.goto`, so a cursor over several sets reports where it moved | not filed yet | `active` | |
 | WG-009 | `4bc35b117d050ce0b08e81211d350021f8664ddb` | Search the chunk that holds the position, by its relative offsets, in `PointSet.at` | not filed yet | `active` | |
+| WG-010 | `3a7f000c37e471c61b63c0fe61ae7622ee4ca442` | Draw a cursor at a textblock's start or end, pointing out of it, at the line's edge when the edge span runs the block's way | not filed yet | `active` | |
