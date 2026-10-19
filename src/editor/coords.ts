@@ -83,3 +83,28 @@ function flattenV(rect: DOMRect, left: boolean) {
 function flattenH(rect: DOMRect, top: boolean) {
   return rect.height ? new DOMRect(rect.left, top ? rect.top : rect.bottom, rect.width, 0) : rect
 }
+
+function lineHeight(dom: HTMLElement) {
+  let style = (dom.ownerDocument.defaultView || window).getComputedStyle(dom)
+  let height = parseFloat(style.lineHeight)
+  return isNaN(height) ? parseFloat(style.fontSize) * 1.2 : height
+}
+
+// Where a cursor in the gap between two blocks is drawn, in client coordinates: upright,
+// centered in the gap, or just outside the block where nothing is on the other side (Obsidian fork)
+export function gapCursorRect(wg: Wordgard, pos: number, side: -1 | 1): DOMRect {
+  let {ref, rect} = coordsAtPos(wg, pos, side)
+  let {ref: otherRef, rect: other} = coordsAtPos(wg, pos, side > 0 ? -1 : 1)
+  let edge = otherRef == ref || otherRef.node == wg.state.doc.resolve(pos).parent.node
+  let top = Math.min(rect.top, edge ? rect.top : other.top), bottom = Math.max(rect.top, edge ? rect.top : other.top)
+  let line = lineHeight(wg.contentDOM)
+  let size = Math.max(Math.min(line, bottom - top), line * 0.75), y = (top + bottom - size) / 2
+  if (edge && ref.dom.nodeType == 1) {
+    let block = (ref.dom as HTMLElement).getBoundingClientRect()
+    y = Math.abs(rect.top - block.top) <= Math.abs(rect.top - block.bottom) ? rect.top - size : rect.top
+    // Within what the scroller can show, so it is not clipped
+    let scroll = wg.scrollDOM, start = scroll.getBoundingClientRect().top - scroll.scrollTop
+    y = Math.min(Math.max(y, start), start + scroll.scrollHeight - size)
+  }
+  return new DOMRect(wg.state.textLTR ? rect.left : rect.right, y, 0, size)
+}
