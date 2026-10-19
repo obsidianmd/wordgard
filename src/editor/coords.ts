@@ -95,7 +95,7 @@ function lineHeight(dom: HTMLElement) {
 export function gapCursorRect(wg: Wordgard, pos: number, side: -1 | 1): DOMRect {
   let {ref, rect} = coordsAtPos(wg, pos, side)
   let {ref: otherRef, rect: other} = coordsAtPos(wg, pos, side > 0 ? -1 : 1)
-  let edge = otherRef == ref || otherRef.node == wg.state.doc.resolve(pos).parent.node
+  let edge = otherRef == ref || otherRef.tag == wg.state.doc.resolve(pos).parent.node.tag
   let top = Math.min(rect.top, edge ? rect.top : other.top), bottom = Math.max(rect.top, edge ? rect.top : other.top)
   let line = lineHeight(wg.contentDOM)
   let size = Math.max(Math.min(line, bottom - top), line * 0.75), y = (top + bottom - size) / 2
