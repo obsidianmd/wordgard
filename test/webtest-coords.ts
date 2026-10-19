@@ -1,5 +1,5 @@
 import {Wordgard} from "wordgard/editor"
-import {GardSelection} from "wordgard/state"
+import {GardSelection, GardState} from "wordgard/state"
 import {Table, TableRow, Cell} from "wordgard/types"
 import {Schema} from "wordgard/doc"
 import ist from "ist"
@@ -112,6 +112,15 @@ describe("coordsAtPos", () => {
     let c6 = wg.coordsAtPos(6, -1)
     ist(c6.top, c4.top, ">")
     ist(P(wg, c6.left + 2, c6.top + 2), "6>")
+  })
+
+  it("draws the end of a right-to-left line with left-to-right text inside at the line's edge", () => {
+    let text = "واحد English اثنين."
+    let wg = tempEditor(doc(p(text)), [GardState.textLTR.of(false), Wordgard.contentAttributes.of({dir: "rtl"}), Wordgard.theme({"&": {width: "40ch"}})])
+    let end = 1 + text.length, x = (pos: number, side: -1 | 1) => Math.round(wg.coordsAtPos(pos, side).left)
+    ist(x(end, 1), x(end, -1))
+    ist(x(1, -1), x(1, 1))
+    ist(x(end, 1), x(1, -1), "<")
   })
 })
 
