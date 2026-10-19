@@ -7,11 +7,9 @@ import {Wordgard, Dialog, KeyBinding, Tooltip} from "wordgard/editor"
 
 function toggleLink(wg: Wordgard) {
   if (wg.state.readOnly) return false
-  let open = Dialog.get(wg, "wg-link-dialog")
+  let open = Dialog.get(wg, toggleLink)
   if (open) {
-    if (open.dom.contains(wg.contentDOM.ownerDocument.activeElement))
-      wg.focus()
-    Dialog.close(wg, "wg-link-dialog")
+    open.close()
     return true
   }
   let {selection, doc} = wg.state
@@ -25,11 +23,14 @@ function toggleLink(wg: Wordgard) {
     wg.dispatch({changes: remove, userEvent: "mark.remove"})
   } else {
     Dialog.show(wg, {
+      key: toggleLink,
       label: phrases.get(wg.state, "link_target"),
       input: {type: "text", name: "url"},
       submitLabel: phrases.get(wg.state, "create_link"),
       class: "wg-link-dialog",
-      focus: true
+      focus: true,
+      closedBy: tr => !!tr.selection,
+      tooltip: {pos: wg.state.selection.from}
     }).result.then(form => {
       wg.focus()
       let url = form && (form.elements.namedItem("url") as HTMLInputElement)?.value
@@ -110,6 +111,8 @@ export namespace link {
   export const keyBinding = KeyBinding.of({
     key: "Mod-k",
     run: toggleLink,
+    description: phrases.ref("create_link"),
+    group: KeyBinding.Group.Inline
   })
 
   /// Menu button that will remove the link mark from the selection if
@@ -155,7 +158,7 @@ export namespace link {
   /// selection, will add a link to the selection instead of replacing
   /// it with the pasted text.
   export const pasteOver: GardState.Extension = Wordgard.pasteHandler.of((wg, event) => {
-    let {selection} = wg.state, data = event.clipboardData
+    let {selection} = wg.state, data = event.dataTransfer
     if (!data || selection.empty) return false
     let text = data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list")
     if (!text || !/^(https?|mailto|xmpp|data):[^ ]+$/.test(text)) return false

@@ -16,80 +16,52 @@ export namespace Token {
   export const End = {
     tokenType: Token.Type.Close,
     /// @internal
-    toString() { return "[end]" }
-  } as {tokenType: Token.Type.Close}
+    toString() { return "[end]" },
+    toJSON() { return "." }
+  } as {tokenType: Token.Type.Close, toJSON(): any}
+
+  /// A token's JSON representation.
+  export type JSON = Node.JSON | "."
+
+  /// Read a token from its JSON representation.
+  export function fromJSON(schema: Schema, value: JSON) {
+    if (value === ".") return Token.End
+    if (!value || typeof value.type != "string")
+      throw new ValidationError("Invalid slice JSON")
+    let type = schema.getNode(value.type)
+    return type?.isLeaf || ("content" in value) ? schema.nodeFromJSON(value) : schema.tagFromJSON(value)
+  }
 }
 
-/// A slice represents a part of a document. It is used to represent
-/// inserted content in {@link ChangeSet change sets}, or things like
-/// clipboard content.
+/// A slice represents a part of a document, as an array of tokens
+/// plus a context. It is used to represent things like clipboard
+/// content and insertions given when building a {@link ChangeSet
+/// change set}.
 export class Slice {
   /// The length of the slice's content.
   readonly length: number
 
-  private constructor(readonly content: readonly Token[]) {
+  private constructor(
+    /// The tokens contained in this slice.
+    readonly content: readonly Token[],
+    /// This slice's context, an array of tags that can be used as a
+    /// hint when the slice's content needs to be wrapped in
+    /// additional content to fit somewhere, ordered with the
+    /// innermost nodes in front. May be empty when there
+    /// is no context available.
+    readonly context: readonly Plot.Tag[]
+  ) {
     this.length = content.reduce((l, e) => l + (e.tokenType == Token.Type.Node ? e.length : 1), 0)
   }
 
   /// Create a slice.
-  static of(content: readonly Token[]) { return new Slice(content) }
-
-  /// Compare a slice to another one.
-  eq(other: Slice) {
-    if (other.content.length != this.content.length) return false
-    for (let i = 0; i < this.content.length; i++) {
-      let a = this.content[i], b = other.content[i]
-      if (a == Token.End) {
-        if (b != Token.End) return false
-      } else if (a.tokenType == Token.Type.Node) {
-        if (!((b.tokenType == Token.Type.Node) && a.eq(b))) return false
-      } else if (a.tokenType == Token.Type.Open) {
-        if (!((b.tokenType == Token.Type.Open) && a.eq(b))) return false
-      }
-    }
-    return true
-  }
-
-  /// @internal
-  run(track: SliceWalker, startPos = 0) {
-    let pos = startPos
-    for (let elt of this.content) {
-      if (elt.tokenType == Token.Type.Open) track.open(elt, pos++)
-      else if (elt.tokenType == Token.Type.Node) { track.node(elt, pos); pos += elt.length }
-      else track.close(pos++)
-    }
-  }
-
-  /// Create a sub-slice of this slice.
-  slice(from: number, to = this.length) {
-    if (from == to) return Slice.empty
-    let result: Token[] = [], off = 0
-    for (let elt of this.content) {
-      let start = off
-      off += elt.tokenType == Token.Type.Node ? elt.length : 1
-      if (off <= from) continue
-      if (start < from || off > to) {
-        let inner = (elt as Node).sliceInner(Math.max(0, from - start), Math.min((elt as Plot).length, to - start))
-        for (let elt of inner.content) result.push(elt)
-      } else {
-        result.push(elt)
-      }
-      if (off >= to) break
-    }
-    return new Slice(result)
+  static of(content: readonly Token[], context?: readonly Plot.Tag[]) {
+    return content.length || context && context.length ? new Slice(content, context || Slice.empty.context) : Slice.empty
   }
 
   /// Concatenate this slice to another slice.
   concat(other: Slice) {
-    let content = this.content.slice()
-    let i = 0
-    if (content.length && other.content.length && other.content[0].tokenType == Token.Type.Node &&
-        content[content.length - 1].tokenType == Token.Type.Node) {
-      other.content[0].pushTo(content as Node[])
-      i = 1
-    }
-    for (; i < other.content.length; i++) content.push(other.content[i])
-    return new Slice(content)
+    return new Slice(Slice.concat(this.content, other.content), this.context)
   }
 
   /// Get the text content of the slice's tokens.
@@ -111,34 +83,71 @@ export class Slice {
   }
 
   /// The empty slice.
-  static empty = new Slice([])
+  static empty = new Slice([], [])
 
   /// @internal
   toString() {
     return `<${this.content.join()}>`
   }
 
-  /// Convert this slice to a JSON-serializeable representation.
-  toJSON(): Slice.JSON {
-    return this.content.map(e => e.tokenType == Token.Type.Close ? "." : e.toJSON())
+  /// Create a slice (with context) from the given range of document
+  /// content. `to` defaults to the end of the document.
+  static get(doc: Plot.Doc, from: number, to?: number) {
+    return new Slice(doc.slice(from, to), doc.contextAt(from))
   }
 
-  /// Build a slice from its JSON representation.
-  static fromJSON(schema: Schema, json: Slice.JSON) {
-    if (!Array.isArray(json)) throw new ValidationError("Invalid slice JSON")
-    return new Slice(json.map(value => {
-      if (value === ".") return Token.End
-      if (!value || typeof value.type != "string")
-        throw new ValidationError("Invalid slice JSON")
-      let type = schema.getNode(value.type)
-      return type?.isLeaf || ("content" in value) ? schema.nodeFromJSON(value) : schema.tagFromJSON(value)
-    }))
+  /// @internal
+  static run(tokens: readonly Token[], track: SliceWalker, startPos = 0) {
+    let pos = startPos
+    for (let elt of tokens) {
+      if (elt.tokenType == Token.Type.Open) track.open(elt, pos++)
+      else if (elt.tokenType == Token.Type.Node) { track.node(elt, pos); pos += elt.length }
+      else track.close(pos++)
+    }
   }
-}
 
-export namespace Slice {
-  /// A slice's JSON representation.
-  export type JSON = readonly (Node.JSON | ".")[]
+  /// @internal
+  static concat(a: readonly Token[], b: readonly Token[]) {
+    let tokens = a.slice()
+    let i = 0
+    if (a.length && b.length && b[0].tokenType == Token.Type.Node &&
+        a[a.length - 1].tokenType == Token.Type.Node) {
+      b[0].pushTo(tokens as Node[])
+      i = 1
+    }
+    for (; i < b.length; i++) tokens.push(b[i])
+    return tokens
+  }
+
+  /// @internal
+  static slice(tokens: readonly Token[], from: number, to: number = 1e9) {
+    if (from == to) return Slice.empty.content
+    let result: Token[] = [], off = 0
+    for (let elt of tokens) {
+      let start = off
+      off += elt.tokenType == Token.Type.Node ? elt.length : 1
+      if (off <= from) continue
+      if (start < from || off > to) {
+        let inner = (elt as Node).sliceInner(Math.max(0, from - start), Math.min((elt as Plot).length, to - start))
+        for (let elt of inner) result.push(elt)
+      } else {
+        result.push(elt)
+      }
+      if (off >= to) break
+    }
+    return result
+  }
+
+  /// @internal
+  static eq(a: readonly Token[], b: readonly Token[]) {
+    if (a.length != b.length) return false
+    for (let i = 0; i < a.length; i++) {
+      let tA = a[i], tB = b[i]
+      if (tA.tokenType != tB.tokenType || (tA.tokenType != Token.Type.Close && !tA.eq(tB as any)))
+        return false
+    }
+    return true
+  }
 }
 
 export interface SliceWalker {

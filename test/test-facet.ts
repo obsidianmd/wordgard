@@ -51,26 +51,26 @@ describe("EditorState facets", () => {
   })
 
   it("supports dynamic facet inputs", () => {
-    let st = mk(num.of(1), num.compute(() => 88))
+    let st = mk(num.of(1), num.derive(() => 88))
     ist(st.facet(num).join(), "1,88")
   })
 
   it("only recomputes a facet value when necessary", () => {
-    let st = mk(num.of(1), num.compute(s => s.facet(str).join().length), str.of("hello"))
+    let st = mk(num.of(1), num.derive(s => s.facet(str).join().length), str.of("hello"))
     let array = st.facet(num)
     ist(array.join(), "1,5")
     ist(st.update({}).state.facet(num), array)
   })
 
   it("can handle dependencies on facets that aren't present in the state", () => {
-    let st = mk(num.compute(s => s.facet(str).join().length),
-                str.compute(s => s.facet(bool).toString()))
+    let st = mk(num.derive(s => s.facet(str).join().length),
+                str.derive(s => s.facet(bool).toString()))
     ist(st.update({}).state.facet(num).join(), "0")
   })
 
   it("can specify a dependency on the document", () => {
     let count = 0
-    let st = mk(num.compute(state => (state.doc, count++)))
+    let st = mk(num.derive(state => (state.doc, count++)))
     ist(st.facet(num).join(), "0")
     st = st.update({changes: {insert: [Leaf.text("hello")], from: 1}}).state
     ist(st.facet(num).join(), "1")
@@ -80,7 +80,7 @@ describe("EditorState facets", () => {
 
   it("can specify a dependency on the selection", () => {
     let count = 0
-    let st = mk(num.compute(state => (state.selection, count++)))
+    let st = mk(num.derive(state => (state.selection, count++)))
     ist(st.facet(num).join(), "0")
     st = st.update({changes: {insert: [Leaf.text("hello")], from: 1}}).state
     ist(st.facet(num).join(), "1")
@@ -92,7 +92,7 @@ describe("EditorState facets", () => {
 
   it("can specify a dependency on the schema", () => {
     let count = 0
-    let st = mk(num.compute(state => (state.schema, count++)), basicSchema.elements.map(e => GardState.schemaElement.of(e)))
+    let st = mk(num.derive(state => (state.schema, count++)), basicSchema.elements.map(e => GardState.schemaElement.of(e)))
     ist(st.facet(num).join(), "0")
     st = st.update({changes: {insert: [Leaf.text("hello")], from: 1}}).state
     ist(st.facet(num).join(), "0")
@@ -102,7 +102,7 @@ describe("EditorState facets", () => {
 
   it("derives dependencies of computed facets", () => {
     let ran = 0
-    let st = mk(num.compute(state => { ran++; return state.doc.length + state.facet(str).length }))
+    let st = mk(num.derive(state => { ran++; return state.doc.length + state.facet(str).length }))
     st = st.update({changes: {from: 1, insert: [Leaf.text("---")]}}).state
     ist(st.facet(num)[0], 5)
     ist(ran, 2)
@@ -115,9 +115,9 @@ describe("EditorState facets", () => {
 
   it("only tracks direct, not transitive dependencies", () => {
     let ran = 0
-    let st = mk(bool.compute(st => st.doc.length > 2),
-                str.compute(st => st.facet(bool)[0] ? "ok" : "o"),
-                num.compute(st => { ran++; return st.facet(str)[0].length }))
+    let st = mk(bool.derive(st => st.doc.length > 2),
+                str.derive(st => st.facet(bool)[0] ? "ok" : "o"),
+                num.derive(st => { ran++; return st.facet(str)[0].length }))
     ist(ran, 1)
     ist(st.facet(num)[0], 1)
     st = st.update({changes: {from: 1, insert: [Leaf.text("a")]}}).state
@@ -128,7 +128,7 @@ describe("EditorState facets", () => {
   })
 
   it("can provide multiple values at once", () => {
-    let st = mk(num.computeN(s => s.doc.length % 2 ? [100, 10] : []), num.of(1))
+    let st = mk(num.deriveN(s => s.doc.length % 2 ? [100, 10] : []), num.of(1))
     ist(st.facet(num).join(), "1")
     st = st.update({changes: {insert: [Leaf.text("hello")], from: 1}}).state
     ist(st.facet(num).join(), "100,10,1")
@@ -142,15 +142,15 @@ describe("EditorState facets", () => {
 
   it("works with a dynamic combined facet", () => {
     let f = GardState.Facet.define<number, number>({combine: ns => ns.reduce((a, b) => a + b, 0)})
-    let st = mk(f.of(1), f.compute(s => s.doc.length), f.of(3))
+    let st = mk(f.of(1), f.derive(s => s.doc.length), f.of(3))
     ist(st.facet(f), 6)
     st = st.update({changes: {insert: [Leaf.text("hello")], from: 1}}).state
     ist(st.facet(f), 11)
   })
 
   it("survives reconfiguration", () => {
-    let st = mk(num.compute(s => s.doc.length), num.of(2), str.of("3"))
-    let st2 = st.update({effects: GardState.reconfigure.of([num.compute(s => s.doc.length), num.of(2)])}).state
+    let st = mk(num.derive(s => s.doc.length), num.of(2), str.of("3"))
+    let st2 = st.update({effects: GardState.reconfigure.of([num.derive(s => s.doc.length), num.of(2)])}).state
     ist(st.facet(num), st2.facet(num))
     ist(st2.facet(str).length, 0)
   })
@@ -159,7 +159,7 @@ describe("EditorState facets", () => {
     let f = GardState.Facet.define<number, {count: number}>({
       combine: v => ({count: v.length})
     })
-    let st = mk(f.compute(s => s.doc.length), f.of(2))
+    let st = mk(f.derive(s => s.doc.length), f.of(2))
     let st2 = st.update({effects: GardState.appendConfig.of(str.of("hi"))}).state
     ist(st.facet(f), st2.facet(f))
   })
@@ -207,12 +207,12 @@ describe("EditorState facets", () => {
   })
 
   it("errors on cyclic dependencies", () => {
-    ist.throws(() => mk(num.compute(s => s.facet(str).length), str.compute(s => s.facet(num).join())),
+    ist.throws(() => mk(num.derive(s => s.facet(str).length), str.derive(s => s.facet(num).join())),
                /cyclic/i)
   })
 
   it("updates facets computed from static values on reconfigure", () => {
-    let st = mk(num.compute(state => state.facet(str).length), str.of("A"))
+    let st = mk(num.derive(state => state.facet(str).length), str.of("A"))
     st = st.update({effects: GardState.appendConfig.of(str.of("B"))}).state
     ist(st.facet(num).join(","), "2")
     ist(st.facet(num), st.update({effects: GardState.appendConfig.of(bool.of(false))}).state.facet(num))
@@ -220,8 +220,19 @@ describe("EditorState facets", () => {
 
   it("preserves dynamic facet values when dependencies stay the same", () => {
     let f = GardState.Facet.define<{a: number}>()
-    let st1 = mk(f.compute(state => ({a: 1})), str.of("A"))
+    let st1 = mk(f.derive(state => ({a: 1})), str.of("A"))
     let st2 = st1.update({effects: GardState.appendConfig.of(bool.of(true))}).state
     ist(st1.facet(f), st2.facet(f))
+  })
+
+  it("can maintain derived fields", () => {
+    let d = GardState.Field.Derived.define(s => [s.doc.length])
+    let st = mk(d)
+    ist(st.field(d)[0], 2)
+    st = st.update({changes: {from: 1, insert: [Leaf.text("!")]}}).state
+    let array = st.field(d)
+    ist(array[0], 3)
+    st = st.update({selection: {anchor: 2}}).state
+    ist(st.field(d), array)
   })
 })
