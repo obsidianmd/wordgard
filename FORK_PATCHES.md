@@ -22,3 +22,4 @@ After each upstream sync, run `git cherry -v upstream/main main` as an advisory 
 | --- | --- | --- | --- | --- | --- |
 | WG-001 | `28fa7554006b0b7a900ca4312dfef4315c1e9690` | Remove invalid `codeBlockLanguage` schema re-export | [follow-up](https://code.haverbeke.berlin/wordgard/wordgard/issues/41) | `absorbed` | `7a6cb5ba526eb4e41e3c11308b2a7fb17acffd26` |
 | WG-002 | `c5a77bba8dee910d71d6b4c7f32726b471f3fca9` | Return nonzero when package type checking fails | [report](https://code.haverbeke.berlin/wordgard/wordgard/issues/43) | `absorbed` | `d48f580e9208ab8704a6866d86416edf76f41084` |
+| WG-010 | `3a7f000c37e471c61b63c0fe61ae7622ee4ca442` | Draw a cursor at a textblock's start or end, pointing out of it, at the line's edge when the edge span runs the block's way | not filed yet | `active` | |
