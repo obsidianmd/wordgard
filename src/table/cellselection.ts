@@ -1,12 +1,12 @@
 import {GardState, GardSelection, Transaction} from "wordgard/state"
-import {Decoration, PointSet, Wordgard} from "wordgard/editor"
-import {Node, Plot, Pos, ChangeSet, ValidationError} from "wordgard/doc"
+import {Decoration, Wordgard} from "wordgard/editor"
+import {Node, Plot, Pos, Slice, ChangeSet, ValidationError} from "wordgard/doc"
 import {Table, TableRow} from "wordgard/types"
 import {Command, moveByUnit, moveByLine, moveByWord, moveToLineSide} from "wordgard/command"
 
 import {TableMap} from "./tablemap"
 
-const cellSelectionDeco = GardState.Field.define<PointSet<Decoration.Point>>({
+const cellSelectionDeco = GardState.Field.define<Decoration.Point.Set>({
   create: getCellDeco,
   update: (deco, tr) => {
     return tr.docChanged || tr.selection ? getCellDeco(tr.state) : deco
@@ -16,9 +16,9 @@ const cellSelectionDeco = GardState.Field.define<PointSet<Decoration.Point>>({
 
 const selectedCell = Decoration.Point.attributes({class: "wg-selected-cell"})
 
-function getCellDeco(state: GardState): PointSet<Decoration.Point> {
-  if (!(state.selection instanceof CellSelection)) return PointSet.empty
-  return PointSet.create(state.selection.ranges.map(({from}) => [from - 1, selectedCell]))
+function getCellDeco(state: GardState): Decoration.Point.Set {
+  if (!(state.selection instanceof CellSelection)) return Decoration.Point.none
+  return Decoration.Point.set(state.selection.ranges.map(({from}) => [selectedCell, from - 1]))
 }
 
 const tableSelectionFilter = GardState.prec.low(Transaction.extender.of(tr => {
@@ -122,6 +122,24 @@ export class CellSelection extends GardSelection {
   get domSelection() {
     let {from, to} = this.replacementRange
     return {anchor: from, anchorSide: 1, head: to, headSide: -1} as const
+  }
+
+  toSlice(doc: Plot.Doc) {
+    let base = doc.resolve(this.anchorCell), table = base.parent!.parent!
+    let map = TableMap.get(table.node, table.start)
+    let rect = map.rectBetween(this.anchorCell, this.headCell)
+    let rows: Plot[] = [], added = new Set<number>()
+    for (let row = rect.startRow; row < rect.endRow; row++) {
+      let rowContent: Plot[] = []
+      for (let col = rect.startCol; col < rect.endCol; col++) {
+        let cell = map.cellAt(col, row)!
+        if (added.has(cell)) continue
+        added.add(cell)
+        rowContent.push(map.getCell(cell))
+      }
+      rows.push((table.node.content[row] as Plot).tag.create(rowContent))
+    }
+    return Slice.of(rows, [table.node.tag])
   }
 
   eq(other: GardSelection) {

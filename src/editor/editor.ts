@@ -4,14 +4,14 @@ import {PhraseSet} from "wordgard/phrases"
 import {StyleModule, StyleSpec} from "style-mod"
 
 import {DocTile, updateAttributes} from "./tile"
-import {coordsAtPos} from "./coords"
+import {coordsAtPos, gapCursorRect} from "./coords"
 import {addUpdated} from "./changes"
 import {clipboardOutputFilter, clipboardOutputHTMLFilter, clipboardOutputTextFilter,
         clipboardInputFilter, clipboardInputHTMLFilter, clipboardInputTextFilter,
         clipboardTextParser, clipboardTextSerializer} from "./clipboard"
 import {theme, colorScheme, buildTheme, styleID, baseLightID, baseDarkID, lightDarkIDs, baseStyles} from "./theme"
 import {DOMObserver} from "./domobserver"
-import {InputState, getCompositionInfo, isFocusChange, mouseSelectionStyle,
+import {InputState, isFocusChange, mouseSelectionStyle,
         dragBehavior, pasteHandler, dropHandler, eventHandler, eventObserver} from "./input"
 import {ViewState, scrollIntoView, ScrollTarget} from "./viewstate"
 import browser from "./browser"
@@ -212,8 +212,8 @@ export class Wordgard {
     this.lastFlush = Date.now()
     try {
       let domChanges = this.observer.takeDirty()
-      this.viewState.flush()
       this.observer.ignore(() => this.runUpdate(update, domChanges))
+      this.viewState.flush()
       domChanges = null
       for (let i = 0;; i++) {
         if (i > 5) {
@@ -253,6 +253,8 @@ export class Wordgard {
 
     let {from, to, assoc} = target
     let rect = this.coordsAtPos(from, from == to ? assoc : 1)
+    // Scroll to where a cursor in a gap between blocks is drawn (Obsidian fork)
+    if (from == to && !this.state.doc.resolve(from).parent.node.inlineContent) rect = gapCursorRect(this, from, assoc)
     if (from != to) {
       let other = this.coordsAtPos(to, -1)
       let left = Math.min(rect.left, other.left), top = Math.min(rect.top, other.top)
@@ -270,7 +272,8 @@ export class Wordgard {
   }
 
   private runUpdate(update: Wordgard.Update, domChanges: readonly number[] | null) {
-    let composition = this.composing ? getCompositionInfo(this) : null
+    let composition = this.composing ? this.inputState.getCompositionInfo(this) : null
+    if (this.composing && !composition) this.inputState.abortComposition()
     let changes = domChanges ? addUpdated(update.changes.sections, domChanges) : update.changes.sections
     let prevDocTile = this.docTile
     if (!update.empty) {
@@ -454,7 +457,9 @@ export class Wordgard {
   /// of its parent nodes, if any. Will not return the outer document node.
   nodeFromDOM(node: Element): {pos: number, node: Node} | null {
     let tile = this.docTile.nearest(node, true)
-    return tile && tile != this.docTile ? {pos: tile.posBefore, node: tile.node!} : null
+    if (!tile || tile == this.docTile) return null
+    let pos = tile.posBefore, n = this.state.doc.nodeAt(pos)
+    return n && {pos, node: n}
   }
 
   /// Get the document position at the given screen coordinates.
@@ -463,7 +468,6 @@ export class Wordgard {
                 .elementFromPoint(coords.x, coords.y)
     let tile = (elt && this.docTile.nearest(elt)) || this.docTile
     let result = tile.posAtCoords(this.state, coords.x, coords.y)
-    // FIXME could make this more accurate by using info about DOM changes
     for (let tr of this.viewState.pending) result = result.map(tr.changes)
     return result
   }
@@ -501,7 +505,8 @@ export class Wordgard {
   focus() {
     if (this.connected) this.observer.ignore(() => {
       this.contentDOM.focus({preventScroll: true})
-      if (this.willFlush && this.flushing == Flush.No) this.flush()
+      if (this.willFlush && this.flushing == Flush.No && this.viewState.pending.some(tr => tr.docChanged))
+        this.flush()
       setDOMSelection(this)
     })
   }

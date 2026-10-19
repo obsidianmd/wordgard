@@ -123,16 +123,20 @@ export class GardState {
     return this.resolvedSel || (this.resolvedSel = this.selection.resolve(this.doc))
   }
 
-  /// Retrieve the value of a {@link GardState.Field state field}.
-  /// Throws an error when the state doesn't have that field, unless
-  /// you pass `false` as second parameter.
-  field<T>(field: GardState.Field<T>): T
+  /// Retrieve the value of a {@link GardState.Field state field} or
+  /// {@link GardState.Field.Derived derived field}. Throws an error
+  /// when the state doesn't have that field, unless you pass `false`
+  /// as second parameter, in which case you'll get `undefined` for a
+  /// regular field, or the value will be eagerly computed for a
+  /// derived field.
+  field<T>(field: GardState.Field<T> | GardState.Field.Derived<T>): T
   field<T>(field: GardState.Field<T>, require: false): T | undefined
-  field<T>(field: GardState.Field<T>, require: boolean = true): T | undefined {
+  field<T>(field: GardState.Field.Derived<T>, require: false): T
+  field<T>(field: GardState.Field<T> | GardState.Field.Derived<T>, require: boolean = true): T | undefined {
     let addr = this.config.address[field.id]
     if (addr == null) {
       if (require) throw new RangeError("Field is not present in this state")
-      return undefined
+      return field instanceof GardState.Field ? undefined : field.value(this)
     }
     let track = this.trackAccess
     if (track) {
@@ -421,6 +425,82 @@ export namespace GardState {
       /// field's content.
       fromJSON?: (json: any, state: GardState) => Value
     }
+
+    /// Define a field-like state slot that is computed from other
+    /// slots in the state. Automatically tracks dependencies and only
+    /// recomputes when one of the inputs accessed by the given
+    /// function changes. Use {@link GardState.field} to read the
+    /// value of such a field.
+    export class Derived<Value> {
+      /// @internal
+      readonly id = nextID++
+      /// @internal
+      dependencies: Slot[] = []
+
+      private constructor(
+        /// @internal
+        readonly value: (state: GardState) => Value,
+        private compareF: (a: Value, b: Value) => boolean
+      ) {}
+
+      /// Define a derived field.
+      static define<Value>(compute: (state: GardState) => Value, spec: {
+        /// Optional function used to compare the value of the field,
+        /// to prevent propagating a change when a recomputed result
+        /// is the same as the old value. Should return `true` when
+        /// the inputs can be considered the same. Defaults to `===`.
+        compare?: (a: Value, b: Value) => boolean
+      } = {}) {
+        return new Derived(compute, spec.compare || ((a, b) => a === b))
+      }
+
+      /// Derived fields must be included in your state configuration
+      /// for them to be used.
+      get extension(): GardState.Extension { return this }
+
+      /// @internal
+      slot(addresses: {[id: number]: number}): DynamicSlot {
+        let idx = addresses[this.id] >> 1
+        let depSet = new DependencySet
+
+        return {
+          create: state => {
+            state.values[idx] = state.recordAccess(this.dependencies, this.value)
+            return SlotStatus.Changed
+          },
+          update: (state, tr) => {
+            depSet.update(this.dependencies, addresses)
+            if ((depSet.doc && tr.docChanged) || (depSet.sel && (tr.docChanged || tr.selection)) ||
+              (depSet.schema && tr.startState.schema != state.schema) || ensureAll(state, depSet.addrs)) {
+              let newVal = state.recordAccess<Value>(this.dependencies, this.value)
+              if (!this.compareF(newVal, state.values[idx])) {
+                state.values[idx] = newVal
+                return SlotStatus.Changed
+              }
+            }
+            return 0
+          },
+          reconfigure: (state, oldState) => {
+            let newVal, oldAddr = oldState.config.address[this.id]
+            if (oldAddr != null) {
+              let oldVal = getAddr(oldState, oldAddr)
+              if (this.dependencies.every(dep => {
+                return dep instanceof GardState.Facet ? oldState.facet(dep) === state.facet(dep)
+                  : dep instanceof GardState.Field ? oldState.field(dep, false) == state.field(dep, false)
+                  : true
+              }) || this.compareF(newVal = state.recordAccess(this.dependencies, this.value), oldVal)) {
+                state.values[idx] = oldVal
+                return 0
+              }
+            } else {
+              newVal = state.recordAccess(this.dependencies, this.value)
+            }
+            state.values[idx] = newVal
+            return SlotStatus.Changed
+          }
+        }
+      }
+    }
   }
 
   /// A facet is a labeled value that is associated with an editor
@@ -479,10 +559,10 @@ export namespace GardState {
     /// Returns an extension that provides the given value to this
     /// facet.
     of(value: Input): GardState.Extension {
-      return new FacetProvider<Input>(none, this, ProviderFlag.Static, value)
+      return new FacetProvider<Input>(this, nextID++, ProviderFlag.Static, value)
     }
 
-    /// Create an extension that computes a value for the facet from a
+    /// Create an extension that derives a value for the facet from a
     /// state. The given function should only depend on the state, not
     /// any external non-constant inputs. Its return value will be kept
     /// on state update, unless any of the fields or facets (including
@@ -492,28 +572,30 @@ export namespace GardState {
     /// In cases where your value depends only on a single field, you
     /// can use the {@link GardState.Facet.from `from`} method
     /// instead.
-    compute(get: (state: GardState) => Input): GardState.Extension {
-      if (this.isStatic) throw new Error("Can't compute a static facet")
-      return new FacetProvider<Input>([], this, ProviderFlag.Auto, get)
+    derive(get: (state: GardState) => Input): GardState.Extension {
+      if (this.isStatic) throw new Error("Can't derive a static facet")
+      let field = Field.Derived.define(get, {compare: this.compareInput})
+      return [field, new FacetProvider<Input>(this, field.id, ProviderFlag.None, null)]
     }
 
-    /// Create an extension that computes zero or more values for this
+    /// Create an extension that derives zero or more values for this
     /// facet from a state.
-    computeN(get: (state: GardState) => readonly Input[]): GardState.Extension {
-      if (this.isStatic) throw new Error("Can't compute a static facet")
-      return new FacetProvider<Input>([], this, ProviderFlag.Multi | ProviderFlag.Auto, get)
+    deriveN(get: (state: GardState) => readonly Input[]): GardState.Extension {
+      if (this.isStatic) throw new Error("Can't derive a static facet")
+      let field = Field.Derived.define(get, {compare: (a, b) => compareArray(a, b, this.compareInput)})
+      return [field, new FacetProvider<Input>(this, field.id, ProviderFlag.Multi, null)]
     }
 
     /// Shorthand method for registering a facet source with a state
     /// field as input. If the field's type corresponds to this facet's
     /// input type, the getter function can be omitted. If given, it
     /// will be used to produce the input from the field value.
-    from<T extends Input>(field: GardState.Field<T>): GardState.Extension
-    from<T>(field: GardState.Field<T>, get: (value: T) => Input): GardState.Extension
-    from<T>(field: GardState.Field<T>, get?: (value: T) => Input): GardState.Extension {
-      if (this.isStatic) throw new Error("Can't compute a static facet")
-      if (!get) get = x => x as any
-      return new FacetProvider<Input>([field], this, 0 as ProviderFlag, state => get!(state.field(field)))
+    from<T extends Input>(field: GardState.Field<T> | GardState.Field.Derived<T>): GardState.Extension
+    from<T>(field: GardState.Field<T> | GardState.Field.Derived<T>, get: (value: T) => Input): GardState.Extension
+    from<T>(field: GardState.Field<T> | GardState.Field.Derived<T>, get?: (value: T) => Input): GardState.Extension {
+      if (this.isStatic) throw new Error("Can't derive a static facet")
+      if (!get) return new FacetProvider<Input>(this, field.id, ProviderFlag.None, null)
+      return this.derive(s => get(s.field(field)))
     }
 
     tag!: Output
@@ -555,7 +637,7 @@ export namespace GardState {
 
     /// A facet reader can be used to fetch the value of a facet,
     /// through {@link GardState.facet} or as a dependency in {@link
-    /// GardState.Facet.compute `Facet.compute`}, but not to define
+    /// GardState.Facet.derive `Facet.derive`}, but not to define
     /// new values for the facet.
     export type Reader<Output> = {
       /// @internal
@@ -624,7 +706,7 @@ export namespace GardState {
 
     /// @internal
     static resolve(base: GardState.Extension, compartments: Map<GardState.Compartment, GardState.Extension>, oldState?: GardState) {
-      let fields: GardState.Field<any>[] = []
+      let fields: (GardState.Field<any> | GardState.Field.Derived<any>)[] = []
       let facets: {[id: number]: FacetProvider<any>[]} = Object.create(null)
       let newCompartments = new Map<GardState.Compartment, GardState.Extension>()
 
@@ -659,9 +741,6 @@ export namespace GardState {
             if (p.flags & ProviderFlag.Static) {
               address[p.id] = (staticValues.length << 1) | 1
               staticValues.push(p.value)
-            } else {
-              address[p.id] = dynamicSlots.length << 1
-              dynamicSlots.push(a => p.dynamicSlot(a))
             }
           }
           address[facet.id] = dynamicSlots.length << 1
@@ -706,7 +785,7 @@ export namespace GardState {
   }
 
   function flatten(extension: GardState.Extension, compartments: Map<GardState.Compartment, GardState.Extension>, newCompartments: Map<GardState.Compartment, GardState.Extension>) {
-    let result: (FacetProvider<any> | GardState.Field<any>)[][] = [[], [], [], [], []]
+    let result: (FacetProvider<any> | GardState.Field<any> | GardState.Field.Derived<any>)[][] = [[], [], [], [], []]
     let seen = new Map<GardState.Extension, number>()
     function inner(ext: GardState.Extension, prec: number) {
       let known = seen.get(ext)
@@ -730,6 +809,8 @@ export namespace GardState {
       } else if (ext instanceof GardState.Field) {
         result[prec].push(ext)
         if (ext.provides) inner(ext.provides, prec)
+      } else if (ext instanceof GardState.Field.Derived) {
+        result[prec].push(ext)
       } else if (ext instanceof FacetProvider) {
         result[prec].push(ext)
         if (ext.facet.extensions) inner(ext.facet.extensions, Prec.Default)
@@ -869,7 +950,7 @@ export namespace GardState {
     static: true
   })
 
-  /// @hidden FIXME expose this?
+  /// @hidden
   export const isAtom = GardState.Facet.define<[Plot.Type, boolean], Map<Plot.Type, boolean>>({
     static: true,
     combine(inputs) {
@@ -901,9 +982,10 @@ function sameArray<T>(a: readonly T[], b: readonly T[]) {
   return a == b || a.length == b.length && a.every((e, i) => e === b[i])
 }
 
-type Slot = GardState.Facet.Reader<any> | GardState.Field<any> | "doc" | "selection" | "schema"
+type Slot = GardState.Facet.Reader<any> | GardState.Field<any> | GardState.Field.Derived<any> | "doc" | "selection" | "schema"
 
 const enum ProviderFlag {
+  None = 0,
   Static = 1,
   Multi = 2, // Dynamic providers may produce an array of values
   Auto = 4   // Dependencies automatically tracked
@@ -935,63 +1017,17 @@ class DependencySet {
 }
 
 class FacetProvider<Input> {
-  readonly id = nextID++
   extension!: GardState.Extension // Kludge to convince the type system these count as extensions
-  dependencies: Slot[]
 
-  constructor(dependencies: readonly Slot[],
-              readonly facet: GardState.Facet<Input, any>,
-              readonly flags: ProviderFlag,
-              readonly value: ((state: GardState) => Input) | ((state: GardState) => readonly Input[]) | Input) {
-    this.dependencies = dependencies as Slot[] // Only mutated for auto providers
-  }
-
-  dynamicSlot(addresses: {[id: number]: number}): DynamicSlot {
-    let getter: (state: GardState) => any = this.value as any
-    let compare = this.facet.compareInput
-    let id = this.id, idx = addresses[id] >> 1
-    let multi = this.flags & ProviderFlag.Multi
-    let dependencies = this.dependencies
-    let auto: Slot[] | null = this.flags & ProviderFlag.Auto ? dependencies : null
-    let depSet = new DependencySet
-
-    return {
-      create(state) {
-        state.values[idx] = state.recordAccess(auto, getter)
-        return SlotStatus.Changed
-      },
-      update(state, tr) {
-        depSet.update(dependencies, addresses)
-        if ((depSet.doc && tr.docChanged) || (depSet.sel && (tr.docChanged || tr.selection)) ||
-            (depSet.schema && tr.startState.schema != state.schema) || ensureAll(state, depSet.addrs)) {
-          let newVal = state.recordAccess(auto, getter)
-          if (multi ? !compareArray(newVal, state.values[idx], compare) : !compare(newVal, state.values[idx])) {
-            state.values[idx] = newVal
-            return SlotStatus.Changed
-          }
-        }
-        return 0
-      },
-      reconfigure(state, oldState) {
-        let newVal, oldAddr = oldState.config.address[id]
-        if (oldAddr != null) {
-          let oldVal = getAddr(oldState, oldAddr)
-          if (dependencies.every(dep => {
-            return dep instanceof GardState.Facet ? oldState.facet(dep) === state.facet(dep)
-              : dep instanceof GardState.Field ? oldState.field(dep, false) == state.field(dep, false)
-              : true
-          }) || (multi ? compareArray(newVal = getter(state), oldVal, compare) : compare(newVal = getter(state), oldVal))) {
-            state.values[idx] = oldVal
-            return 0
-          }
-        } else {
-          newVal = state.recordAccess(auto, getter)
-        }
-        state.values[idx] = newVal
-        return SlotStatus.Changed
-      }
-    }
-  }
+  constructor(
+    readonly facet: GardState.Facet<Input, any>,
+    // Own ID for static facets, ID of source for those
+    // reading a field.
+    readonly id: number,
+    readonly flags: ProviderFlag,
+    // Value if this is a static facet
+    readonly value: Input | null
+  ) {}
 }
 
 function compareArray<T>(a: readonly T[], b: readonly T[], compare: (a: T, b: T) => boolean) {

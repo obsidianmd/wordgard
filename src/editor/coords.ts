@@ -9,6 +9,20 @@ export class Coords {
 // Given a position in the document model, get a bounding box of the
 // character at that position, relative to the window.
 export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
+  let textblock = wg.state.doc.resolve(pos).textblockParent
+  let map = textblock ? wg.state.textblockMap(textblock) : null
+
+  // Treat position pointing out of a textblock specially if the bidi
+  // span at that side isn't in the block's main direction.
+  if (textblock && textblock.node.contentLength &&
+      (pos == textblock.start && assoc < 0 || pos == textblock.end && assoc > 0)) {
+    let span = map!.order[pos == textblock.start ? 0 : map!.order.length - 1]
+    if (span.ltr != map!.ltr)
+      pos = textblock.start + (pos == textblock.start ? span.to : span.from)
+    else
+      assoc = pos == textblock.start ? 1 : -1
+  }
+
   let {offset, tile, pos: tilePos} = wg.docTile.resolve(pos, assoc)
 
   if (tile instanceof TextTile) {
@@ -17,20 +31,20 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
     if (side < 0) to++
     else from--
     return new Coords(tile, flattenV(singleRect(textRange(tile.dom, from, to), side, true),
-                                     (side < 0) == ltrAt(wg.state, pos, assoc)))
+                                     (side < 0) == ltrAt(wg.state, pos, assoc, map)))
   }
 
   let tagTile = tile
-  while (!tagTile.node) tagTile = tagTile.parent!
+  while (!tagTile.tag) tagTile = tagTile.parent!
   // Return a horizontal line in block context
-  let horizontal = tagTile.node.isPlot && tagTile.node.type.orientation == "column"
+  let horizontal = tagTile.tag.isPlot && tagTile.tag.type.orientation == "column"
 
   if (tile instanceof WidgetTile) {
     let after = pos > tilePos + tile.length / 2
     if (tile.widget.type.inFlow) {
       let rect = singleRect(tile.dom, after ? 1 : -1)
       if (rect.width || rect.height)
-        return new Coords(tile, horizontal ? flattenH(rect, !after) : flattenV(rect, ltrAt(wg.state, pos, 1) == !after))
+        return new Coords(tile, horizontal ? flattenH(rect, !after) : flattenV(rect, ltrAt(wg.state, pos, 1, map) == !after))
     }
     if (!tile.parent) return new Coords(tile, new DOMRect)
     offset = tile.parent.children.indexOf(tile) + (after ? 1 : 0)
@@ -47,7 +61,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
         if (before.dom.nodeName == "BR") break
         let rect = singleRect(before.dom, 1)
         if (rect.width || rect.height)
-          return new Coords(before, horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1)))
+          return new Coords(before, horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1, map)))
       }
     } else { // Scan forward
       for (let i = offset; i < tile.children.length; i++) {
@@ -55,7 +69,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
         if (after instanceof WidgetTile && !after.widget.type.inFlow) continue
         let rect = singleRect(after.dom, -1)
         if (rect.width || rect.height)
-          return new Coords(after, horizontal ? flattenH(rect, true) : flattenV(rect, ltrAt(wg.state, pos, 1)))
+          return new Coords(after, horizontal ? flattenH(rect, true) : flattenV(rect, ltrAt(wg.state, pos, 1, map)))
       }
     }
   }
@@ -70,4 +84,29 @@ function flattenV(rect: DOMRect, left: boolean) {
 
 function flattenH(rect: DOMRect, top: boolean) {
   return rect.height ? new DOMRect(rect.left, top ? rect.top : rect.bottom, rect.width, 0) : rect
+}
+
+function lineHeight(dom: HTMLElement) {
+  let style = (dom.ownerDocument.defaultView || window).getComputedStyle(dom)
+  let height = parseFloat(style.lineHeight)
+  return isNaN(height) ? parseFloat(style.fontSize) * 1.2 : height
+}
+
+// Where a cursor in the gap between two blocks is drawn, in client coordinates: upright,
+// centered in the gap, or just outside the block where nothing is on the other side (Obsidian fork)
+export function gapCursorRect(wg: Wordgard, pos: number, side: -1 | 1): DOMRect {
+  let {ref, rect} = coordsAtPos(wg, pos, side)
+  let {ref: otherRef, rect: other} = coordsAtPos(wg, pos, side > 0 ? -1 : 1)
+  let edge = otherRef == ref || otherRef.tag == wg.state.doc.resolve(pos).parent.node.tag
+  let top = Math.min(rect.top, edge ? rect.top : other.top), bottom = Math.max(rect.top, edge ? rect.top : other.top)
+  let line = lineHeight(wg.contentDOM)
+  let size = Math.max(Math.min(line, bottom - top), line * 0.75), y = (top + bottom - size) / 2
+  if (edge && ref.dom.nodeType == 1) {
+    let block = (ref.dom as HTMLElement).getBoundingClientRect()
+    y = Math.abs(rect.top - block.top) <= Math.abs(rect.top - block.bottom) ? rect.top - size : rect.top
+    // Within what the scroller can show, so it is not clipped
+    let scroll = wg.scrollDOM, start = scroll.getBoundingClientRect().top - scroll.scrollTop
+    y = Math.min(Math.max(y, start), start + scroll.scrollHeight - size)
+  }
+  return new DOMRect(wg.state.textLTR ? rect.left : rect.right, y, 0, size)
 }

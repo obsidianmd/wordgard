@@ -384,7 +384,7 @@ export class Leaf<Param = unknown> extends BaseTag<Param> implements Node.Shared
 
   /// @internal
   sliceInner(from: number, to: number) {
-    return from == to ? Slice.empty : Slice.of([this.is(Leaf.Text) ? this.sliceText(from, to) : this])
+    return from == to ? Slice.empty.content : [this.is(Leaf.Text) ? this.sliceText(from, to) : this]
   }
 
   /// @internal
@@ -512,10 +512,10 @@ export class Plot implements Node.Shared {
 
   /// @internal
   sliceInner(from: number, to: number) {
-    if (from == to) return Slice.empty
+    if (from == to) return Slice.empty.content
     let content: Token[] = []
     this.slicePlot(content, from, to)
-    return Slice.of(content)
+    return content
   }
 
   /// @internal
@@ -947,7 +947,7 @@ export namespace Plot {
       }
     }
 
-    /// Create a slice of the content between `from` and `to`.
+    /// Create a token slice of the content between `from` and `to`.
     slice(from: number, to = this.length) {
       return this.sliceInner(from, to)
     }

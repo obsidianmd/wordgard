@@ -57,7 +57,7 @@ export function rangeForClick(wg: Wordgard, pos: CoordPos, type: number): GardSe
     return wg.state.wordAt(pos.pos, pos.side || 1)
   } else { // Triple click
     let cx = wg.state.doc.resolve(pos.pos), block = cx.textblockParent
-    if (block) return GardSelection.range(block.start, block.end)
+    if (block) return GardSelection.undirectionalRange(block.start, block.end)
     else return GardSelection.near(wg.state, pos.pos, pos.side || -1)
   }
 }
@@ -167,10 +167,13 @@ export function moveToLineBoundary(wg: Wordgard, start: GardSelection, forward: 
   let startCoords = wg.coordsAtPos(start.head, start.headSide)
   let ltr = wg.state.textblockLTR(block.node)
   let y = (startCoords.top + startCoords.bottom) / 2, left = forward != ltr
-  let {pos} = wg.posAtCoords({x: left ? -1e7 : 1e7, y})
+  let {pos, side} = wg.posAtCoords({x: left ? -1e7 : 1e7, y})
   if (pos < block.start || pos > block.end) {
     let blockRect = (wg.docTile.nodeTile(block.before)!.dom as Element).getBoundingClientRect()
-    pos = wg.posAtCoords({x: left ? blockRect.left : blockRect.right, y}).pos
+    let result = wg.posAtCoords({x: left ? blockRect.left + 1 : blockRect.right - 1, y})
+    if (result.pos < block.start) { pos = block.start; side = -1 }
+    else if (result.pos > block.end) { pos = block.end; side = 1 }
+    else { ({pos, side} = result) }
   }
-  return GardSelection.cursor(pos, forward ? -1 : 1)
+  return GardSelection.cursor(pos, side)
 }

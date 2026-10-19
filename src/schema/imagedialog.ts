@@ -1,6 +1,6 @@
 import {Node, Mark, ChangeSet, Plot} from "wordgard/doc"
-import {Wordgard, Panel, Dialog} from "wordgard/editor"
-import {GardState, Transaction, GardSelection} from "wordgard/state"
+import {Wordgard, Dialog} from "wordgard/editor"
+import {GardState, GardSelection} from "wordgard/state"
 import {ImageSize, ImageAlt, Image, Figure, CaptionedFigure, Alignment} from "wordgard/types"
 import {Command} from "wordgard/command"
 import {PhraseSet, imagePhrases} from "wordgard/phrases"
@@ -75,23 +75,6 @@ function imageTypeButtons(state: GardState, active: Node.Tag | null) {
   return [cr("span", {class: "wg-label"}, imagePhrases.get(state, "image_style"), ":"), cr("span", buttons)]
 }
 
-const setImageDialog = Transaction.Effect.define<boolean>()
-
-const createImagePanel: Panel.Constructor = wg => {
-  let dom = buildImagePanel(wg), mustFocus = true
-  return {
-    top: true,
-    dom,
-    connect() {
-      if (mustFocus) {
-        mustFocus = false
-        let target = dom.querySelector("input[name=src]") as HTMLElement | null
-        if (target) target.focus()
-      }
-    }
-  }
-}
-
 function startUpload(wg: Wordgard, file: HTMLInputElement, set: (url: string) => void) {
   let imageFile = file.files?.[0], handler = wg.state.facet(imageUploader)[0]
   if (!imageFile || !handler) return
@@ -113,9 +96,8 @@ function startUpload(wg: Wordgard, file: HTMLInputElement, set: (url: string) =>
   })
 }
 
-function buildImagePanel(wg: Wordgard) {
-  let {state} = wg
-  let sel = (state.field(imageDialog) || state.selection).resolve(state.doc)
+function buildImageDialog(wg: Wordgard, close: () => void) {
+  let {state} = wg, {sel} = state
   let active = activeImage(sel)
   let size = !wg.state.schema.has(ImageSize) ? null :
     [cr("label", {for: "wg-img-size"}, imagePhrases.get(state, "width"), ":"),
@@ -129,9 +111,9 @@ function buildImagePanel(wg: Wordgard) {
                         onchange: (e: Event) => startUpload(wg, e.target as HTMLInputElement, url => src.value = url)})
   }
 
-  let form = cr(
+  return cr(
     "form", {class: "wg-img-form", onkeydown},
-    cr("div", {class: "wg-dialog-title"}, imagePhrases.get(state, active ? "update_image" : "insert_image")),
+    cr("h3", {class: "wg-dialog-title"}, imagePhrases.get(state, active ? "update_image" : "insert_image")),
     cr("label", {for: "wg-img-src"}, imagePhrases.get(state, "image_source"), ":"),
     cr("span", {class: "wg-img-src-line"}, src, file),
     cr("label", {for: "wg-img-alt"}, imagePhrases.get(state, "alt_text"), ":"),
@@ -143,90 +125,77 @@ function buildImagePanel(wg: Wordgard) {
     cr("div", {class: "wg-img-buttons"},
        cr("button", {type: "submit", class: "wg-dialog-button"}, imagePhrases.get(state, active ? "update" : "insert")), " ",
        cr("button", {type: "button", class: "wg-dialog-button", onclick: close}, imagePhrases.get(state, "cancel"))))
+}
 
-  function onsubmit(e: Event) {
-    e.preventDefault()
-    let {state} = wg, sel = (state.field(imageDialog) || state.selection).resolve(state.doc)
+function finishInsertImage(wg: Wordgard, form: HTMLFormElement | null) {
+  if (!form) return
+  let {state} = wg, {sel} = state
 
-    let data = new FormData(form)
-    let src = data.get("src") as string
-    if (!src) return
-    let type = (data.get("type") as string | null) ?? (state.schema.has(Image) ? "inline" : "start")
-    let cap = !!data.get("caption") || !state.schema.has(Figure)
-    let marks: Mark.Set = []
-    if (type == "center" || type == "end") marks = Alignment.of(type).addToSet(marks)
-    if (data.get("alt")) marks = ImageAlt.of(data.get("alt") as string).addToSet(marks)
-    if (data.get("size")) marks = ImageSize.of(Number(data.get("size") as string)).addToSet(marks)
-    let tag = type == "inline" ? Image.of(src, marks) : cap ? CaptionedFigure.of(src, marks) : Figure.of(src, marks)
+  let data = new FormData(form)
+  let src = data.get("src") as string
+  if (!src) return
+  let type = (data.get("type") as string | null) ?? (state.schema.has(Image) ? "inline" : "start")
+  let cap = !!data.get("caption") || !state.schema.has(Figure)
+  let marks: Mark.Set = []
+  if (type == "center" || type == "end") marks = Alignment.of(type).addToSet(marks)
+  if (data.get("alt")) marks = ImageAlt.of(data.get("alt") as string).addToSet(marks)
+  if (data.get("size")) marks = ImageSize.of(Number(data.get("size") as string)).addToSet(marks)
+  let tag = type == "inline" ? Image.of(src, marks) : cap ? CaptionedFigure.of(src, marks) : Figure.of(src, marks)
 
-    let change: ChangeSet.Spec
-    if (sel.from.parent.node.type == CaptionedFigure && sel.to.parent.start == sel.from.parent.start) {
-      let from = sel.from.parent.before
-      // Replacing a captioned figure
-      if (tag instanceof Plot.Tag)
-        change = {from, to: from + 1, insert: [tag]}
-      else
-        change = {from, to: sel.from.parent.after, insert: [tag], fit: true}
-    } else {
-      change = {from: sel.from.pos, to: sel.to.pos, insert: [tag instanceof Plot.Tag ? tag.create() : tag], fit: true}
-    }
-
-    wg.focus()
-    let changes = ChangeSet.create(state.doc, change), pos = changes.findInserted(t => t == tag) ?? change.from
-    wg.dispatch({
-      changes: change,
-      effects: setImageDialog.of(false),
-      userEvent: "insert.image",
-      selection: tag instanceof Plot.Tag ? {anchor: pos + 1} : GardSelection.node(pos, tag)
-    })
+  let change: ChangeSet.Spec
+  if (sel.from.parent.node.type == CaptionedFigure && sel.to.parent.start == sel.from.parent.start) {
+    let from = sel.from.parent.before
+    // Replacing a captioned figure
+    if (tag instanceof Plot.Tag)
+      change = {from, to: from + 1, insert: [tag]}
+    else
+      change = {from, to: sel.from.parent.after, insert: [tag], fit: true}
+  } else {
+    change = {from: sel.from.pos, to: sel.to.pos, insert: [tag instanceof Plot.Tag ? tag.create() : tag], fit: true}
   }
 
-  function close() {
-    wg.focus()
-    wg.dispatch({effects: setImageDialog.of(false)})
-  }
-
-  function onkeydown(e: KeyboardEvent) {
-    if (e.key == "Escape") {
-      e.preventDefault()
-      close()
-    }
-  }
-
-  return cr("wg-dialog", {class: "wg-img-dialog", onsubmit}, form)
+  let changes = ChangeSet.create(state.doc, change), pos = changes.findInserted(t => t == tag) ?? change.from
+  wg.dispatch({
+    changes: change,
+    userEvent: "insert.image",
+    selection: tag instanceof Plot.Tag ? {anchor: pos + 1} : GardSelection.node(pos, tag)
+  })
 }
 
 export const insertImage: Command = wg => {
-  let val = wg.state.field(imageDialog, false)
-  if (val) {
-    wg.dispatch({effects: setImageDialog.of(false)})
+  let open = Dialog.get(wg, insertImage)
+  if (open) {
+    open.close()
   } else {
-    let effects: Transaction.Effect<any>[] = [setImageDialog.of(true)]
-    if (val === undefined) effects.push(GardState.appendConfig.of(imageDialog))
-    wg.dispatch({effects})
+    Dialog.show(wg, {
+      key: insertImage,
+      content: buildImageDialog,
+      closedBy: tr => !!tr.selection,
+      focus: "input[name=src]",
+      class: "wg-img-dialog",
+      tooltip: {pos: wg.state.selection.from},
+      positioningHint: true
+    }).result.then(form => finishInsertImage(wg, form))
   }
   return true
 }
 
-const imageDialogTheme = Wordgard.styles({
+export const imageDialogTheme = Wordgard.styles({
   ".wg-img-dialog": {
-    borderBottom: "1px solid var(--wg-border-color)"
+    
   },
   ".wg-img-form": {
-    padding: "5px 3px",
     display: "grid",
     gap: "8px",
     alignItems: "center",
     gridTemplateColumns: "max-content auto",
     "& label, & .wg-label": {
-      textAlign: "right"
+      textAlign: "end"
     }
   },
-  ".wg-dialog-title": {
+  ".wg-img-form .wg-dialog-title": {
     gridColumn: "span 2",
-    fontSize: "90%",
-    fontWeight: "bold",
-    textAlign: "center"
+    margin: "0"
   },
   ".wg-img-buttons": {
     gridColumn: "2"
@@ -265,16 +234,4 @@ const imageDialogTheme = Wordgard.styles({
     padding: "4px",
     fontSize: "80%"
   }
-})
-
-export const imageDialog = GardState.Field.define<null | GardSelection>({
-  create: () => null,
-  update(value, tr) {
-    for (let e of tr.effects) if (e.is(setImageDialog)) return e.value ? tr.state.selection : null
-    return value && value.map(tr.changes, tr.state)
-  },
-  provide: f => [
-    GardState.prec.lowest(Panel.show.from(f, val => val && createImagePanel)),
-    imageDialogTheme
-  ]
 })

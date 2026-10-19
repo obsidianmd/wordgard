@@ -1,5 +1,5 @@
 import {Wordgard} from "wordgard/editor"
-import {GardSelection} from "wordgard/state"
+import {GardSelection, GardState} from "wordgard/state"
 import {Table, TableRow, Cell} from "wordgard/types"
 import {Schema} from "wordgard/doc"
 import ist from "ist"
@@ -113,6 +113,15 @@ describe("coordsAtPos", () => {
     ist(c6.top, c4.top, ">")
     ist(P(wg, c6.left + 2, c6.top + 2), "6>")
   })
+
+  it("draws the end of a right-to-left line with left-to-right text inside at the line's edge", () => {
+    let text = "واحد English اثنين."
+    let wg = tempEditor(doc(p(text)), [GardState.textLTR.of(false), Wordgard.contentAttributes.of({dir: "rtl"}), Wordgard.theme({"&": {width: "40ch"}})])
+    let end = 1 + text.length, x = (pos: number, side: -1 | 1) => Math.round(wg.coordsAtPos(pos, side).left)
+    ist(x(end, 1), x(end, -1))
+    ist(x(1, -1), x(1, 1))
+    ist(x(end, 1), x(1, -1), "<")
+  })
 })
 
 function s(pos: number, b?: number) {
@@ -187,5 +196,36 @@ describe("moveVertically", () => {
     ist(wg.moveVertically(s(18), false)?.head, 10)
     ist(wg.moveVertically(s(10), false)?.head, 2)
     ist(wg.moveVertically(s(6), false)?.head, 1)
+  })
+})
+
+describe("moveToLineBoundary", () => {
+  // Cells drawn as the table extension draws them, sharing their borders.
+  let cells = {border: "1px solid silver", padding: "3px 6px"}
+
+  it("stays inside a table cell", () => {
+    let wg = tempEditor(doc(table(tr(td("one"), td("two")), tr(td("three"), td("four")))), Wordgard.theme({
+      "table": { borderCollapse: "collapse" },
+      "td": cells
+    }))
+    ist(wg.moveToLineBoundary(s(4), true)?.head, 6)
+    ist(wg.moveToLineBoundary(s(4), false)?.head, 3)
+    ist(wg.moveToLineBoundary(s(9), true)?.head, 11)
+    ist(wg.moveToLineBoundary(s(9), false)?.head, 8)
+  })
+
+  it("stays on its line in a table cell whose text wraps", () => {
+    let wg = tempEditor(doc(table(tr(td("abc def ghi"), td("two")))), Wordgard.theme({
+      "table": { borderCollapse: "collapse", tableLayout: "fixed", width: "20ch" },
+      "td": { ...cells, width: "5ch" }
+    }))
+    let top = (pos: number, side: -1 | 1) => Math.round(wg.coordsAtPos(pos, side).top)
+    ist(top(4, 1) < top(13, -1))
+    let end = wg.moveToLineBoundary(s(4), true)!
+    ist(end.head > 4 && end.head < 14)
+    ist(top(end.head, -1), top(4, 1))
+    let start = wg.moveToLineBoundary(s(13), false)!
+    ist(start.head > 3 && start.head < 13)
+    ist(top(start.head, 1), top(13, -1))
   })
 })

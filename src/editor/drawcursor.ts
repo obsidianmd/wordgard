@@ -2,7 +2,7 @@ import {Mark, Node} from "wordgard/doc"
 import {GardState} from "wordgard/state"
 import type {Wordgard} from "./editor"
 import {TextTile} from "./tile"
-import {coordsAtPos} from "./coords"
+import {coordsAtPos, gapCursorRect} from "./coords"
 import {textRange} from "./dom"
 // FIXME this is a bit sloppy
 import {renderMarks} from "./decoration"
@@ -109,8 +109,6 @@ function vertOverlap(a: DOMRect, b: DOMRect) {
   return a.top < b.bottom - margin && a.bottom > b.top + margin
 }
 
-const VertWidth = 30, VertGap = 5
-
 function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInfo) => void) {
   let {state} = wg
   if (!state.selection.isCursor) return cont(null)
@@ -118,20 +116,10 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
   let {ref, rect} = coordsAtPos(wg, head, headSide)
   let doc = wg.contentDOM.getBoundingClientRect()
 
-  // Block context, horizontal cursor
+  // Block context: an upright cursor in the gap between blocks (Obsidian fork)
   if (!sel.head.parent.node.inlineContent) {
-    let width = Math.min(VertWidth, rect.width), top = rect.top
-    let other = wg.coordsAtPos(head, headSide > 0 ? -1 : 1)
-    if (other.top == other.bottom && other.top != top) {
-      let move = Math.min(VertGap, Math.abs(other.top - top) / 2)
-      top = top + move * (other.top < top ? -1 : 1)
-    }
-    return cont({
-      left: (wg.state.textLTR ? rect.left : rect.right - width) - doc.left,
-      top: top - doc.top,
-      size: width,
-      horiz: true, style: null
-    })
+    let gap = gapCursorRect(wg, head, headSide)
+    return cont({left: gap.left - doc.left, top: gap.top - doc.top, size: gap.height, horiz: false, style: null})
   }
 
   let finish = (style: CursorStyle | null, vertRect?: DOMRect) => {
@@ -191,7 +179,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
   // Create a temporary node to measure
   let target = sel.head.parent.node.isDoc ? wg.contentDOM : wg.nodeDOM(sel.head.parent.before)!
   wg.scheduleDOMWrite(() => {
-    let temp = renderMarks(marks, "M")
+    let temp = renderMarks(wg.state, marks, "M")
     ;(temp as HTMLElement).style.position = "absolute"
     wg.observer.ignore(() => target.insertBefore(temp, target.firstChild))
     wg.scheduleDOMRead(() => {

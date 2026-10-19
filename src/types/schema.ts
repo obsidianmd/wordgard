@@ -53,9 +53,6 @@ export const CodeBlock = Plot.define("CodeBlock", {
   shape: {element: "pre"},
 })
 
-// FIXME does this need an interface? (Quill displays a drop-down in
-// the top-right corner)
-
 /// A mark that assigns a language identifier (any string) to a code
 /// block. Stored in the `data-language` attribute.
 export const CodeBlockLanguage = Mark.Type.define<string>("CodeBlockLanguage", {

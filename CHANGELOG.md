@@ -1,3 +1,101 @@
+## 0.6.0 (2026-10-17)
+
+### Breaking changes
+
+The interface to `RangeSet` and `PointSet` changed, and these are now exported from wordgard/set.
+
+`handlePaste` handlers now get passed an `InputEvent` rather than a `ClipboardEvent`.
+
+Dialogs are no longer shown as panels, but rather as floating elements on top of the editor.
+
+The `close` value returned by `Dialog.show` is now a function, not an effect.
+
+`Dialog.close` no longer exist. Instead, look up your dialog via its key with `Dialog.get`, and call the `close` method on the result.
+
+Change sets now store plain token arrays rather than `Slice` objects. This is visible in `iterChanges` and the type's JSON representation.
+
+`Plot.Doc.slice` now returns a token array rather than a `Slice` object.
+
+Several clipboard-related facets that were passed their context as a separate argument lost that argument and need to take it from the slice now.
+
+`parse.slice` no longer returns a wrapping object with a slice and context, since the context is now included in the slice.
+
+`serialize.slice` no longer takes the slice's context as an option, but instead takes it from the slice object.
+
+The 'scope' feature of key bindings is no longer supported.
+
+Key binding specifications no longer allow aliases (like `s-`) for modifiers and modifier names are now case-sensitive.
+
+`Decoration.Tag.shape.dynamic` and `.widget.dynamic` are now called `.derived`.
+
+`TextblockMap.visualSide` no longer exists (positions at the start/end of a block are now always represented with the actual start/end position of the content).
+
+`Facet.compute`/`computeN` have been renamed to `derive`/`deriveN`.
+
+### Bug fixes
+
+Fix an issue that caused submenus to immediately close when the editor in wrapped in a shadow root.
+
+Make sure pending selection changes are used when interpreting input event ranges.
+
+Avoid overflowing the stack when `posAtCoords` cannot find a position.
+
+More eagerly use defining context nodes when fitting a replacement.
+
+Fix an issue where `nodeFromDOM` could return an outdated version of the node.
+
+Fix an issue where text inserted next to a composition would disrupt the composition.
+
+Make sure a composition that's disrupted by content changes is cleanly terminated.
+
+Handle Safari's outdated implementation of beforeinput events for composition.
+
+Fix an issue where a custom selection type would get reset to a plain text selection if the browser tab lost and regained focus.
+
+The type declarations for wordgard/doc no longer provide the wrong type for `Pos.nextSibling`/`previousSibling`.
+
+Make sure `splitTextblock` won't try to split isolating blocks.
+
+Fix an issue where pressing End in a table cell would take you to the next cell.
+
+Make sure Delete/Backspace won't try to cross table cells or other isolating nodes.
+
+Cell selections how have a `toSlice` method that produces a proper slice with their content, so that copying a cell selection does the right thing.
+
+Fire an update with a `geometryChanged` flag when the height of the editor content changes. Makes sure the cursor stays in the right place.
+
+### New features
+
+The `decoratePlots` function can be used to add decorations to the content of all plots of a given type.
+
+The wordgard/highlight-code package provides basic code block syntax highlighting.
+
+Support paste events that affect content other than the selection.
+
+`codeBlock` now comes with some styles to make code blocks easier to recognize.
+
+Selection classes now have a `toSlice` method that is called to convert the selected content to a slice.
+
+Dialogs may now specify a `tooltip` option to be positioned near a document position.
+
+Dialogs now support a `closedBy` option that makes them close themselves for specific types of transactions.
+
+The new `PositioningHint` object can be used to provide dialogs (or other UI elements) a suggestion of where to appear.
+
+`Slice` objects can now hold a context array. `Slice.get` builds a slice with associated context.
+
+The new `keyBindingHelp` extension can display the editor's active key bindings in a dialog.
+
+`KeyBinding.lookupByDescription` can now be used to look up the key assigned to a feature.
+
+The menu bar now displays key bindings, both in item's `title` attribute and in `aria-keyshortcuts` attributes.
+
+`Decoration.Mark.shape` can now be used to change the way marks are rendered inside the editor.
+
+Selections created by actions like double-clicking now don't have a direction until the first time they are extended.
+
+The new `GardState.Field.Derived` class can be used to define derived values for a state in a way that allows you to read them via `state.field(...)`.
+
 ## 0.5.2 (2026-09-06)
 
 ### Bug fixes

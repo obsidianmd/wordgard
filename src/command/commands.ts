@@ -141,7 +141,7 @@ const killBuffer = GardState.Field.define<{content: readonly Token[], active: bo
 })
 
 function killText(state: GardState, from: number, to: number) {
-  let add = addToKillBuffer.of(state.doc.slice(from, to).content)
+  let add = addToKillBuffer.of(state.doc.slice(from, to))
   return state.field(killBuffer, false) ? [add] : [GardState.appendConfig.of(killBuffer), add]
 }
 
@@ -524,7 +524,8 @@ function isForward(dir: "left" | "right" | "forward" | "backward", state: GardSt
 }
 
 function asTextSel(sel: GardSelection, forward: boolean): GardSelection.Text {
-  if (sel instanceof GardSelection.Text) return sel
+  if (sel instanceof GardSelection.Text)
+    return sel.directional ? sel : forward ? GardSelection.range(sel.from, sel.to) : GardSelection.range(sel.to, sel.from)
   let {from, to} = sel.replacementRange
   return forward ? GardSelection.range(from, to) : GardSelection.range(to, from)
 }
@@ -605,7 +606,7 @@ function pageHeight(wg: Wordgard) {
 /// Move the selection head one page up or down. Extend the selection
 /// when the `extend` flag is true.
 export const moveByPage: Command<{dir: "up" | "down", extend?: boolean}> = (wg, {dir, extend}) => {
-  let {state} = wg, {selection} = state, forward = dir == "down"
+  let {state} = wg, forward = dir == "down", selection = asTextSel(state.selection, forward)
   let moved = selection.empty || extend ? nextVertical(wg, selection, forward, pageHeight(wg), !extend)
     : forward ? GardSelection.cursor(selection.to, -1) : GardSelection.cursor(selection.from, 1)
   return moved ? setSelection(extend ? extendSel(selection, moved as GardSelection.Text) : moved) : false
@@ -617,7 +618,7 @@ export const moveByPage: Command<{dir: "up" | "down", extend?: boolean}> = (wg, 
 export const moveToLineSide: Command<{
   dir: "left" | "right" | "forward" | "backward", extend?: boolean,
 }> = (wg, {dir, extend}) => {
-  let forward = isForward(dir, wg.state), {selection} = wg.state
+  let forward = isForward(dir, wg.state), selection = asTextSel(wg.state.selection, forward)
   let pos = wg.moveToLineBoundary(selection, forward)
   return pos ? setSelection(extend ? extendSel(selection, pos) : pos)
     : extend || selection.empty ? false
@@ -631,8 +632,9 @@ export const moveToTextblockSide: Command<{
 }> = (wg, {dir, extend}) => {
   let {state} = wg, block = state.sel.head.textblockParent
   if (!block) return false
-  let pos = isForward(dir, wg.state) ? GardSelection.atEnd(state, block) : GardSelection.atStart(state, block)
-  return setSelection(extend ? extendSel(wg.state.selection, pos) : pos)
+  let forward = isForward(dir, wg.state)
+  let pos = forward ? GardSelection.atEnd(state, block) : GardSelection.atStart(state, block)
+  return setSelection(extend ? extendSel(asTextSel(wg.state.selection, forward), pos) : pos)
 }
 
 /// Move to the start or end of the document.
@@ -640,7 +642,7 @@ export const moveToDocSide: Command.Pure<{side: "start" | "end", extend?: boolea
   let {state} = target
   let pos = side == "start" ? GardSelection.atStart(state) : GardSelection.atEnd(state)
   if (state.selection.empty && pos.head == state.selection.head) return false
-  return setSelection(extend ? extendSel(state.selection, pos) : pos)
+  return setSelection(extend ? extendSel(asTextSel(state.selection, side == "end"), pos) : pos)
 }
 
 /// Select the entire document.

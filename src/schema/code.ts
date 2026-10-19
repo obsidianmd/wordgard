@@ -10,8 +10,13 @@ import {selectionInType} from "./block"
 /// binding}, a {@link codeBlock.button menu button}, and an {@link
 /// codeBlock.createOnBackticks input rule}.
 export function codeBlock(): GardState.Extension {
-  return [GardState.schemaElement.of(CodeBlock),
-          codeBlock.button, codeBlock.keyBinding, codeBlock.createOnBackticks]
+  return [
+    GardState.schemaElement.of(CodeBlock),
+    codeBlock.button,
+    codeBlock.keyBinding,
+    codeBlock.createOnBackticks,
+    codeBlock.theme
+  ]
 }
 
 export namespace codeBlock {
@@ -19,7 +24,9 @@ export namespace codeBlock {
   /// block.
   export const keyBinding = KeyBinding.of({
     key: "Ctrl-Shift-\\",
-    run: Command.bind(setTextblockType, CodeBlock)
+    run: Command.bind(setTextblockType, CodeBlock),
+    description: phrases.ref("code_block"),
+    group: KeyBinding.Group.Block
   })
 
   /// Button for the {@link Menu.Submenu.textblockStyle textblock
@@ -53,6 +60,16 @@ export namespace codeBlock {
       scrollIntoView: true
     }
   }))
+
+  /// Simple style that gives code blocks a background and slightly
+  /// rounded corners.
+  export const theme = Wordgard.theme({
+    pre: {
+      padding: "8px 12px",
+      borderRadius: "4px",
+      background: "#88888819"
+    }
+  })
 }
 
 /// Add support for the code block {@link CodeBlockLanguage language
@@ -82,16 +99,21 @@ const languageStyles = Wordgard.styles({
       font: "var(--wg-dialog-font)",
       fontSize: "70%",
       position: "absolute",
-      top: "2px",
-      right: "4px",
+      top: "5px",
+      right: "5px",
       border: "none",
-      borderRadius: "4px"
+      borderRadius: "4px",
+      background: "#88888827"
     }
   }
 })
 
 const languageOptions = GardState.Facet.define<readonly string[], readonly string[]>({
-  combine: input => input.reduce((a, b) => a.concat(b), [])
+  combine: input => {
+    let options: string[] = []
+    for (let arr of input) for (let opt of arr) if (!options.includes(opt)) options.push(opt)
+    return options
+  }
 })
 
 function option(text: string, selected: boolean, value: string) {
@@ -133,7 +155,7 @@ const languageWidget = Widget.define<{options: readonly string[], value: string 
   inFlow: false
 })
 
-const languageSelect = Decoration.Tag.widget.dynamic(CodeBlock, "end", state => {
+const languageSelect = Decoration.Tag.widget.derived(CodeBlock, "end", state => {
   let options = state.facet(languageOptions)
   return tag => {
     return languageWidget.of({options, value: tag.mark(CodeBlockLanguage)})
@@ -158,6 +180,12 @@ export namespace codeBlockLanguage {
   /// {@link codeBlockLanguage.selectLanguage `selectLanguage`}.
   export const selectLanguageBinding = KeyBinding.of({
     key: "Shift-Mod-l",
-    run: codeBlockLanguage.selectLanguage
+    run: codeBlockLanguage.selectLanguage,
+    description: phrases.ref("code_block_language"),
+    group: KeyBinding.Group.Block
   })
+
+  /// A facet that allows you to add options to the language selection
+  /// drop-down.
+  export const options = languageOptions
 }
