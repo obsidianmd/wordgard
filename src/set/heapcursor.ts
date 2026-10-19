@@ -70,6 +70,7 @@ export class HeapCursor<T> implements Set.Cursor<T> {
         heapSink(this.heap, this.heap.length - 1, this.cmp)
       }
     }
+    this.fill()
   }
 
   next() {
