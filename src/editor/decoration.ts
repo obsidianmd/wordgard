@@ -931,7 +931,7 @@ export class DecoIterator {
     if (active.length) {
       for (let val of active) {
         if (val instanceof WrapperRangeDecoration && (tagScope(tag, atom) & val.scope) &&
-          (!val.query || this.schema.matchNode(tag.type, val.query)))
+            (!val.query || this.schema.matchNode(tag.type, val.query)))
           (wrappers || (wrappers = [])).push(val)
       }
     }

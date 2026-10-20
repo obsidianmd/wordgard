@@ -115,11 +115,20 @@ describe("PointSet", () => {
     ist(`${cursor.value!.name}@${cursor.from}`, "b@9")
   })
 
-  it("finds the value at a position", () => {
-    let set = PointSet.create([[V.a, 0], [V.b, 2], [V.c, 5]])
-    ist([0, 1, 2, 5, 6].map(pos => set.at(pos)?.name ?? "-").join(" "), "a - b c -")
-    let big = PointSet.create<V>(add => { for (let i = 0; i < 2000; i++) add(new V("v" + i), i * 2) })
-    ist(big.at(1500)!.name, "v750")
-    ist(big.at(1501), undefined)
+  it("can find the point at a position", () => {
+    let set = PointSet.create<V>([[V.a, 10], [V.b, 20]])
+    ist(set.at(5), undefined)
+    ist(set.at(10), V.a)
+    ist(set.at(15), undefined)
+    ist(set.at(20), V.b)
+    ist(set.at(25), undefined)
+  })
+  it("can find the point at a position in a big set", () => {
+    let set = PointSet.create<V>(add => {
+      for (let i = 0; i < chunkSize * 2; i++) add(V.a, i * 2)
+    })
+    ist(set.at(0), V.a)
+    ist(set.at(1), undefined)
+    ist(set.at(chunkSize * 2 + 100), V.a)
   })
 })

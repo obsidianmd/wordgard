@@ -20,7 +20,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
     if (span.ltr != map!.ltr)
       pos = textblock.start + (pos == textblock.start ? span.to : span.from)
     else
-      assoc = pos == textblock.start ? 1 : -1
+      assoc = -assoc as -1 | 1
   }
 
   let {offset, tile, pos: tilePos} = wg.docTile.resolve(pos, assoc)

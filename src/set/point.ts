@@ -147,7 +147,7 @@ export class PointSet<T extends PointSet.Value> implements Set<T> {
       if (chunk.start > pos) break
       if (chunk.end < pos) continue
       let index = findAbove(chunk.pos, 0, pos - chunk.start - 1)
-      if (index < chunk.pos.length && chunk.pos[index] == pos - chunk.start) return chunk.value[index]
+      if (index < chunk.pos.length && chunk.pos[index] + chunk.start == pos) return chunk.value[index]
     }
     return undefined
   }

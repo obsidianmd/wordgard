@@ -301,7 +301,7 @@ export function normalizeKeyName(name: string, platform: PlatformName): string {
   }
   if (alt) result = "Alt-" + result
   if (ctrl) result = "Ctrl-" + result
-  if (meta) result = (platform == "mac" ? "Meta-" : "Cmd-") + result
+  if (meta) result = (platform == "mac" ? "Cmd-" : "Meta-") + result
   if (shift) result = "Shift-" + result
   return result
 }
