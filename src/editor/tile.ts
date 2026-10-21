@@ -792,7 +792,7 @@ class TilePointer {
 
   tileAfter() {
     let {tile, index} = this
-    if (tile.isText) return tile
+    if (tile.isAtom) return tile
     return index < tile.children.length ? tile.children[index] : null
   }
 
@@ -816,7 +816,7 @@ class TilePointer {
 
   matchingWidget(widget: Widget<any>, sideFlag: number, reused: Map<Tile, Reused>) {
     let {index, tile, parent} = this
-    for (;;) {
+    if (!tile.isAtom) for (;;) {
       if (!index) {
         if (!parent || (tile instanceof EltTile ? tile.tag : !(tile instanceof TextTile))) break
         ;({index, tile, parent} = parent)
@@ -924,7 +924,7 @@ class ContentUpdate {
     // changed and who have end widgets and whose end is inside the
     // kept range.
     if (this.deco.endWidgets) for (let nw: CompositeTile = this.new, {tile, index, parent} = this.old, pos = this.posB; pos < end;) {
-      if (tile instanceof TextTile) {
+      if (tile.isAtom) {
         pos += tile.length - index
         ;({tile, index, parent} = parent!)
         index++
