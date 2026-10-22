@@ -112,8 +112,6 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           UPSTREAM_SHA: ${{ steps.prepare.outputs.upstream_sha }}
         run: |
-          issue_record=$("$RUNNER_TEMP/upstream-sync-workflow.sh" find-issue all "$CONFLICT_ISSUE_TITLE")
-          IFS=$'\t' read -r issue_number issue_state <<< "$issue_record"
           cat > "$RUNNER_TEMP/upstream-sync-conflict.md" <<EOF
           Automation could not merge canonical commit
           \`$UPSTREAM_SHA\` into the Obsidian fork.
@@ -123,16 +121,7 @@ jobs:
 
           Follow the manual conflict-recovery procedure in \`FORK_MAINTENANCE.md\`.
           EOF
-          if [[ -z $issue_number ]]; then
-            gh issue create --title "$CONFLICT_ISSUE_TITLE" \
-              --body-file "$RUNNER_TEMP/upstream-sync-conflict.md"
-          else
-            if [[ $issue_state == closed ]]; then
-              gh issue reopen "$issue_number"
-            fi
-            gh issue comment "$issue_number" \
-              --body-file "$RUNNER_TEMP/upstream-sync-conflict.md"
-          fi
+          "$RUNNER_TEMP/upstream-sync-workflow.sh" report-conflict "$CONFLICT_ISSUE_TITLE" "$RUNNER_TEMP/upstream-sync-conflict.md"
 
       - name: Close resolved conflict issue
         if: steps.prepare.outputs.status == 'no_changes' || steps.prepare.outputs.status == 'merged'
