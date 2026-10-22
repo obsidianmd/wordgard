@@ -74,12 +74,13 @@ assert_contract "if: steps.prepare.outputs.status == 'merged' && steps.trust.out
 assert_contract "CHANGED_PRIVILEGED_PATHS: \${{ steps.trust.outputs.changed_privileged_paths }}"
 assert_contract 'Privileged release-controller or CI changes require manual review; automatic CI dispatch is disabled.'
 assert_contract "Changed privileged paths: \$changed_privileged_paths"
-assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" find-issue all \"\$CONFLICT_ISSUE_TITLE\""
+assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" report-conflict \"\$CONFLICT_ISSUE_TITLE\" \"\$RUNNER_TEMP/upstream-sync-conflict.md\""
 assert_contract "\"\$RUNNER_TEMP/upstream-sync-workflow.sh\" find-issue open \"\$CONFLICT_ISSUE_TITLE\""
-assert_contract "gh issue create --title \"\$CONFLICT_ISSUE_TITLE\""
-assert_contract "gh issue reopen \"\$issue_number\""
-assert_contract "gh issue comment \"\$issue_number\""
 assert_contract "gh issue close \"\$issue_number\""
+if grep -Fq 'gh issue comment' "$workflow"; then
+	printf 'Workflow must update an open conflict issue without adding a comment.\n' >&2
+	exit 1
+fi
 [[ $(contract_line "$trusted_install") -lt $(contract_line "$prepare_run") ]]
 
 # Every helper invocation gets a private step-output file. The sentinel proves
@@ -200,12 +201,13 @@ mkdir -p "$mock_bin"
 cat >"$mock_bin/gh" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
-[[ $# -eq 4 ]]
-[[ $1 == api ]]
-[[ $2 == --paginate ]]
-[[ $3 == --slurp ]]
 printf '%s\n' "$*" >>"$GH_MOCK_LOG"
-cat "$GH_MOCK_RESPONSE"
+if [[ $1 == api ]]; then
+	[[ $# -eq 4 ]]
+	[[ $2 == --paginate ]]
+	[[ $3 == --slurp ]]
+	cat "$GH_MOCK_RESPONSE"
+fi
 MOCK
 chmod +x "$mock_bin/gh"
 
@@ -224,3 +226,59 @@ issue_result=$(PATH="$mock_bin:$PATH" \
 	"$workflow_script" find-issue all "$issue_title")
 [[ $issue_result == $'205\tclosed' ]]
 [[ $(<"$mock_log") == 'api --paginate --slurp repos/obsidianmd/wordgard/issues?state=all&per_page=100' ]]
+
+mixed_issue_response="$tmp/mixed-issues.json"
+cat >"$mixed_issue_response" <<EOF
+[[{"number": 205, "state": "closed", "title": "$issue_title"},
+  {"number": 206, "state": "open", "title": "$issue_title"}]]
+EOF
+: >"$mock_log"
+mixed_issue_result=$(PATH="$mock_bin:$PATH" \
+	GH_MOCK_LOG="$mock_log" \
+	GH_MOCK_RESPONSE="$mixed_issue_response" \
+	GITHUB_REPOSITORY=obsidianmd/wordgard \
+	"$workflow_script" find-issue all "$issue_title")
+[[ $mixed_issue_result == $'206\topen' ]]
+
+conflict_body="$tmp/conflict-body.md"
+printf 'Latest conflict details\n' >"$conflict_body"
+
+empty_issue_response="$tmp/no-issues.json"
+printf '[[]]\n' >"$empty_issue_response"
+: >"$mock_log"
+PATH="$mock_bin:$PATH" \
+	GH_MOCK_LOG="$mock_log" \
+	GH_MOCK_RESPONSE="$empty_issue_response" \
+	GITHUB_REPOSITORY=obsidianmd/wordgard \
+	"$workflow_script" report-conflict "$issue_title" "$conflict_body"
+expected_create=$(printf '%s\n%s' \
+	'api --paginate --slurp repos/obsidianmd/wordgard/issues?state=all&per_page=100' \
+	"issue create --title $issue_title --body-file $conflict_body")
+[[ $(<"$mock_log") == "$expected_create" ]]
+
+open_issue_response="$tmp/open-issue.json"
+printf '[[{"number":205,"state":"open","title":"%s"}]]\n' "$issue_title" >"$open_issue_response"
+: >"$mock_log"
+PATH="$mock_bin:$PATH" \
+	GH_MOCK_LOG="$mock_log" \
+	GH_MOCK_RESPONSE="$open_issue_response" \
+	GITHUB_REPOSITORY=obsidianmd/wordgard \
+	"$workflow_script" report-conflict "$issue_title" "$conflict_body"
+expected_update=$(printf '%s\n%s' \
+	'api --paginate --slurp repos/obsidianmd/wordgard/issues?state=all&per_page=100' \
+	"issue edit 205 --body-file $conflict_body")
+[[ $(<"$mock_log") == "$expected_update" ]]
+
+closed_issue_response="$tmp/closed-issue.json"
+printf '[[{"number":205,"state":"closed","title":"%s"}]]\n' "$issue_title" >"$closed_issue_response"
+: >"$mock_log"
+PATH="$mock_bin:$PATH" \
+	GH_MOCK_LOG="$mock_log" \
+	GH_MOCK_RESPONSE="$closed_issue_response" \
+	GITHUB_REPOSITORY=obsidianmd/wordgard \
+	"$workflow_script" report-conflict "$issue_title" "$conflict_body"
+expected_reopen=$(printf '%s\n%s\n%s' \
+	'api --paginate --slurp repos/obsidianmd/wordgard/issues?state=all&per_page=100' \
+	"issue edit 205 --body-file $conflict_body" \
+	'issue reopen 205')
+[[ $(<"$mock_log") == "$expected_reopen" ]]
