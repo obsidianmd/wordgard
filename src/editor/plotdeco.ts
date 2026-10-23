@@ -59,7 +59,7 @@ function update<D, S extends Set<D>>(
   tr.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
     let covered = false
     doc.iterate(fromB, toB, (node, pos) => {
-      if (doc.schema.matchNode(node.type, config.type)) {
+      if (doc.schema.matchNode(node.type, config.type) && !recreate.some(r => r.from == pos)) {
         recreate.push({
           from: pos, to: pos + node.length,
           add: add => source(node as Plot, pos + 1, add)
