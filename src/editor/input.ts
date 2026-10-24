@@ -273,7 +273,7 @@ export class InputState {
         return
       if (slice) {
         wg.dispatch({
-          changes: {from, to, insert: slice, fit: true},
+          changes: {correct: {from, to, insert: slice, fit: true}, local: true},
           selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
           userEvent: "input.paste",
           scrollIntoView: isSel
@@ -835,10 +835,10 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     let dropPos = wg.posAtCoords({x: event.clientX, y: event.clientY}).pos
     let {draggedContent} = wg.inputState
     let del = draggedContent && dragMovesSelection(wg, event)
-      ? {from: draggedContent.from, to: draggedContent.to} : null
-    if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del, slice)))
+      ? {correct: {from: draggedContent.from, to: draggedContent.to}, local: true} : null
+    if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del ? del.correct : null, slice)))
       return true
-    let ins = {from: dropPos, insert: slice, fit: true}
+    let ins = {correct: {from: dropPos, insert: slice, fit: true}, local: true}
     let changes = ChangeSet.create(wg.state.doc, del ? [del, ins] : ins)
     wg.focus()
     wg.dispatch({
