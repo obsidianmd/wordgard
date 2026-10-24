@@ -123,6 +123,7 @@ describe("PointSet", () => {
     ist(set.at(20), V.b)
     ist(set.at(25), undefined)
   })
+
   it("can find the point at a position in a big set", () => {
     let set = PointSet.create<V>(add => {
       for (let i = 0; i < chunkSize * 2; i++) add(V.a, i * 2)
@@ -130,5 +131,11 @@ describe("PointSet", () => {
     ist(set.at(0), V.a)
     ist(set.at(1), undefined)
     ist(set.at(chunkSize * 2 + 100), V.a)
+  })
+
+  it("supports a predicate when finding a point", () => {
+    let set = PointSet.create<V>([[V.a, 10], [V.b, 10]])
+    ist(set.at(10, v => v.name == "a"), V.a)
+    ist(set.at(10, v => v.name == "b"), V.b)
   })
 })
