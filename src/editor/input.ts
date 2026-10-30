@@ -889,7 +889,8 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     wg.inputState.pendingInputEvent = null
     let change: ChangeSet.Change | undefined
     if (compositionInputTypes.has(event.inputType) || event.inputType == "insertText") {
-      change = {from: pending.domRange.from, to: pending.domRange.to, insert: [Leaf.text(pending.data || "")]}
+      let text = pending.data || ""
+      change = {from: pending.domRange.from, to: pending.domRange.to, insert: text ? [Leaf.text(text)] : undefined}
     } else if (isDeletionInputEvent(event.inputType)) {
       change = {from: pending.domRange.from, to: pending.domRange.to}
     } else {

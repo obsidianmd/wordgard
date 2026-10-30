@@ -155,7 +155,7 @@ function ensureAnchor(regexp: RegExp) {
 
 function applyString(text: string) {
   return (state: GardState, match: InputRule.MatchArray) => ({
-    changes: {from: match[0].from.pos, to: match[0].to.pos, insert: [Leaf.text(text)]},
+    changes: {from: match[0].from.pos, to: match[0].to.pos, insert: text ? [Leaf.text(text)] : undefined},
     annotations: history.isolate.of(true)
   })
 }
