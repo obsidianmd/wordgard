@@ -1,7 +1,7 @@
 import {GardState, GardSelection} from "wordgard/state"
 import {Mark, Mark as Mark_, Pos, Plot, Leaf, Node, Shape as Shape_, ChangeSet, Schema, Elt, Attributes} from "wordgard/doc"
-import {RangeSet, PointSet, Set, findAbove} from "wordgard/set"
-import {addSection, Changes, addUpdated, addRange, joinRanges} from "./changes"
+import {RangeSet, PointSet, Set} from "wordgard/set"
+import {addSection, Changes, addRange, joinRanges} from "./changes"
 import {type Wordgard} from "./editor"
 
 /// A widget describes a piece of DOM content that can be used to
@@ -697,10 +697,6 @@ export function findChangedRanges(
 ): Changes {
   let result: number[] = []
   let globalChange = globalDecoFacets.some(facet => prevState.facet(facet) !== state.facet(facet))
-  // When node shapes change, we need a separate pass to see whether
-  // their atomicity changed, and mark a replace for the whole node if
-  // it did.
-  let shapeChanges: number[] = []
   for (let i = 0, posA = 0, posB = 0; i < sections.length;) {
     let len = sections[i++], ins = sections[i++]
     if (ins == -1 && globalChange) {
@@ -721,10 +717,6 @@ export function findChangedRanges(
       compareDecoSet(prevDeco.points, deco.points, (a, b) => {
         (a || PointSet.empty).compareRange(posA, b || PointSet.empty, posB, len, (pos, val) => {
           add(pos, Math.min(pos + (val instanceof WidgetDecoration ? 0 : 1), endB))
-          if (val instanceof ShapeDecoration && !globalChange) {
-            let idx = findAbove(shapeChanges, 0, pos - 1)
-            if (idx == shapeChanges.length || shapeChanges[idx] != pos) shapeChanges.splice(idx, 0, pos)
-          }
         })
       })
       let joined = joinRanges(ranges), pos = posB, end = pos + len, j = 0
@@ -748,34 +740,7 @@ export function findChangedRanges(
       addSection(result, len, ins)
     }
   }
-  if (shapeChanges.length) return addAtomicityChanges(result, prevState, shapeChanges)
   return result
-}
-
-function addAtomicityChanges(
-  changes: Changes,
-  prev: GardState,
-  nodes: number[]
-): Changes {
-  let added: number[] = []
-  let scan = prev.doc.resolve(0), sectionPos = 0, sectionI = 0, off = 0
-  for (let posB of nodes) {
-    while (posB >= sectionPos) {
-      let len = changes[sectionI++], ins = changes[sectionI++]
-      if (ins < 0) {
-        sectionPos += len
-      } else {
-        sectionPos += ins
-        off += len - ins
-      }
-    }
-    let posA = posB - off
-    if (scan.pos < posA) scan = scan.advance(posA - scan.pos)
-    let node = scan.nodeAfter
-    if (!node) continue
-    added.push(posA, posA + node.length)
-  }
-  return added.length ? addUpdated(changes, added) : changes
 }
 
 export interface DecoWalker {
@@ -948,7 +913,7 @@ export class DecoIterator {
     let pos = this.pos.advance(from - this.pos.pos), started = inclusiveStart
     let atomParent: Pos.Plot | undefined
     for (let p: Pos.Plot | null = pos.parent; p; p = p.parent)
-      if (this.state.isAtom(p.node.type)) atomParent = p
+      if (!p.node.isDoc && (this.state.isAtom(p.node.type) || this.hasAtomShape(p.before))) atomParent = p
 
     // Track points that may apply to the node at the start of the next range
     let pendingDeco: Decoration.Point[] = [], pendingPos = -1
@@ -1057,6 +1022,17 @@ export class DecoIterator {
       else shape = Elt.create(tag.type.isBlock ? "div" : "span", add, [shape])
     }
     return shape
+  }
+
+  atomCache = new Map<number, boolean>()
+
+  hasAtomShape(pos: number) {
+    let has = this.atomCache.get(pos)
+    if (has == null) {
+      has = this.pointSets.some(s => s.at(pos, d => d instanceof ShapeDecoration && !d.shape.hasContent))
+      this.atomCache.set(pos, has)
+    }
+    return has
   }
 }
 
