@@ -141,13 +141,16 @@ export class PointSet<T extends PointSet.Value> implements Set<T> {
 
   /// Get the value at the given position, if any. If there's multiple
   /// values at that position, the one with the lowest side is
-  /// returned.
-  at(pos: number): T | undefined {
+  /// returned. If a predicate is given, only points that satisfy it
+  /// are returned.
+  at(pos: number, pred?: (value: T) => boolean): T | undefined {
     for (let chunk of this.chunks) {
       if (chunk.start > pos) break
       if (chunk.end < pos) continue
-      let index = findAbove(chunk.pos, 0, pos - chunk.start - 1)
-      if (index < chunk.pos.length && chunk.pos[index] + chunk.start == pos) return chunk.value[index]
+      for (let index = findAbove(chunk.pos, 0, pos - chunk.start - 1);
+           index < chunk.pos.length && chunk.pos[index] + chunk.start == pos; index++) {
+        if (!pred || pred(chunk.value[index])) return chunk.value[index]
+      }
     }
     return undefined
   }
