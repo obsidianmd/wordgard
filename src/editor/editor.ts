@@ -533,7 +533,7 @@ export class Wordgard {
   /// attribute to the editable element holding the given string or
   /// phrase.
   static label(label: string | PhraseSet.Ref) {
-    return Wordgard.editorAttributes.of(typeof label == "string" ? {"aria-label": label}
+    return Wordgard.contentAttributes.of(typeof label == "string" ? {"aria-label": label}
       : (wg => ({"aria-label": label(wg.state)})))
   }
 
