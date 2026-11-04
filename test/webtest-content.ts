@@ -7,12 +7,10 @@ import {builder, basicBuilders, tableSchema} from "./schema.ts"
 import {rDoc, rChangeSpec} from "./generate.ts"
 
 const {DocTile} = Wordgard
-const {doc, p, blockquote, h1, h2, ul, li, br, $img, img, imgAlt, hr, strong, em, table, tr, td} = basicBuilders
+const {doc, p, blockquote, h1, h2, ul, li, br, $img, img, imgAlt, fig, hr, strong, em, table, tr, td} = basicBuilders
 
 type DocTile = InstanceType<typeof DocTile>
 const dummyEditor: Wordgard = {connected: false} as any
-
-const uned = ` contenteditable="false"`
 
 function render(doc: Plot.Doc, ...config: GardState.Extension[]): DocTile {
   return DocTile.create(GardState.create({doc, config}), document.createElement("div"), dummyEditor)
@@ -50,18 +48,22 @@ function compareDOM(a: Element | Text, b: Element | Text) {
   }
 }
 
+function html(tile: DocTile) {
+  return tile.dom.innerHTML.replace(/ contenteditable="false"|<img class="wg-blockBuffer">/g, "")
+}
+
 describe("DocTile", () => {
   it("can draw a simple document", () => {
-    ist(render(doc(p("one"), p("two"))).dom.innerHTML, "<p>one</p><p>two</p>")
+    ist(html(render(doc(p("one"), p("two")))), "<p>one</p><p>two</p>")
   })
 
   it("can draw basic structure", () => {
-    ist(render(doc(blockquote(ul(li(p("a: ", $img)), li(p("b"), p("c")))), hr)).dom.innerHTML,
+    ist(html(render(doc(blockquote(ul(li(p("a: ", $img)), li(p("b"), p("c")))), hr))),
         "<blockquote><ul><li><p>a: <img src=\"test.png\"></p></li><li><p>b</p><p>c</p></li></ul></blockquote><hr>")
   })
 
   it("can draw marks on text", () => {
-    ist(render(doc(p(em("ab", strong("cd")), "ef"))).dom.innerHTML,
+    ist(html(render(doc(p(em("ab", strong("cd")), "ef")))),
         "<p><em>ab<strong>cd</strong></em>ef</p>")
   })
 
@@ -76,13 +78,13 @@ describe("DocTile", () => {
     })
     let alt = builder(Alt), img = builder(Img)
     Plot.Doc.noValidate(() => {
-      ist(render(doc(p(alt("x", img)))).dom.innerHTML,
-          `<p><span class="my-img"${uned}><img alt="x" src="/x.webp"></span></p>`)
+      ist(html(render(doc(p(alt("x", img))))),
+          `<p><span class="my-img"><img alt="x" src="/x.webp"></span></p>`)
     })
   })
 
   it("can draw nodes with structure representation", () => {
-    ist(render(doc(h2("head"))).dom.innerHTML, "<h2>head</h2>")
+    ist(html(render(doc(h2("head")))), "<h2>head</h2>")
   })
 
   it("can draw nodes with complicated structure", () => {
@@ -95,58 +97,56 @@ describe("DocTile", () => {
     })
     Plot.Doc.noValidate(() => {
       let tile = render(doc(FancyBlock.create([Leaf.text("!")])))
-      ist(tile.dom.innerHTML,
-          `<div class=\"c\"><span${uned}>before</span>!<span${uned}>after</span></div>`)
+      ist(html(tile), `<div class=\"c\"><span>before</span>!<span>after</span></div>`)
       tile = update(tile, {changes: [{from: 0, insert: [p("(")]},
                                      {from: 1, to: 2, insert: [Leaf.text("?")]},
                                      {from: 3, insert: [p(")")]}]})
-      ist(tile.dom.innerHTML,
-          `<p>(</p><div class=\"c\"><span${uned}>before</span>?<span${uned}>after</span></div><p>)</p>`)
+      ist(html(tile), `<p>(</p><div class=\"c\"><span>before</span>?<span>after</span></div><p>)</p>`)
     })
   })
 
   it("can draw marks on nodes", () => {
-    ist(render(doc(p(imgAlt("alt text", $img)))).dom.innerHTML,
+    ist(html(render(doc(p(imgAlt("alt text", $img))))),
         "<p><img alt=\"alt text\" src=\"test.png\"></p>")
   })
 
   it("can update for a text change", () => {
     let node = update(render(doc(p("123"))), {changes: {from: 2, insert: [Leaf.text("..")]}})
-    ist(node.dom.innerHTML, "<p>1..23</p>")
+    ist(html(node), "<p>1..23</p>")
   })
 
   it("can update for a tag change", () => {
     let node = update(render(doc(p("a"))), {changes: {from: 0, to: 1, insert: [CodeBlock]}})
-    ist(node.dom.innerHTML, "<pre>a</pre>")
+    ist(html(node), "<pre>a</pre>")
   })
 
   it("can make multiple changes", () => {
     let node = update(render(doc(p("ab"), p("cd"))), {changes: [{from: 1, insert: [Leaf.text("..")]}, {from: 2, to: 6}]})
-    ist(node.dom.innerHTML, "<p>..ad</p>")
+    ist(html(node), "<p>..ad</p>")
   })
 
   it("can update text marks", () => {
     let node = update(render(doc(p("one ", em("two")))), {
       changes: [{from: 1, to: 4, add: Strong}, {from: 5, to: 8, remove: Emphasis}]
     })
-    ist(node.dom.innerHTML, "<p><strong>one</strong> two</p>")
+    ist(html(node), "<p><strong>one</strong> two</p>")
   })
 
   it("can update node marks", () => {
     let node = update(render(doc(p($img, " ", imgAlt("a2", $img)))), {
       changes: [{from: 1, add: ImageAlt.of("a1")}, {from: 3, remove: ImageAlt.of("a2")}]
     })
-    ist(node.dom.innerHTML, "<p><img src=\"test.png\" alt=\"a1\"> <img src=\"test.png\"></p>")
+    ist(html(node), "<p><img src=\"test.png\" alt=\"a1\"> <img src=\"test.png\"></p>")
   })
 
   it("can draw spanning marks", () => {
-    ist(render(doc(p(strong("a", $img, "b"), "c"))).dom.innerHTML,
+    ist(html(render(doc(p(strong("a", $img, "b"), "c")))),
         "<p><strong>a<img src=\"test.png\">b</strong>c</p>")
   })
 
   it("can join spanning marks in updates", () => {
     let node = update(render(doc(p(strong("a"), "b", strong("c")))), {changes: {from: 2, to: 3}})
-    ist(node.dom.innerHTML, "<p><strong>ac</strong></p>")
+    ist(html(node), "<p><strong>ac</strong></p>")
   })
 
   it("preserves DOM nodes with changed wrappers marks", () => {
@@ -158,7 +158,7 @@ describe("DocTile", () => {
 
   it("properly syncs replacements inside wrappers", () => {
     let node = render(doc(p(strong("abc")), p("def")))
-    ist(update(node, {changes: {from: 2, insert: [Leaf.text("..", [Strong])]}}).dom.innerHTML,
+    ist(html(update(node, {changes: {from: 2, insert: [Leaf.text("..", [Strong])]}})),
         "<p><strong>a..bc</strong></p><p>def</p>")
   })
 
@@ -178,12 +178,12 @@ describe("DocTile", () => {
 
   it("adds breaks for empty textblocks and those ending in breaks", () => {
     let node = render(doc(p(), p("a"), p("b", br)))
-    ist(node.dom.innerHTML, "<p><br></p><p>a</p><p>b<br><br></p>")
+    ist(html(node), "<p><br></p><p>a</p><p>b<br><br></p>")
   })
 
   it("fixes textblock breaks on changes", () => {
     let node = render(doc(p(), p("a")))
-    ist(update(node, {changes: [{from: 1, insert: [Leaf.text("x")]}, {from: 3, to: 4}]}).dom.innerHTML,
+    ist(html(update(node, {changes: [{from: 1, insert: [Leaf.text("x")]}, {from: 3, to: 4}]})),
         "<p>x</p><p><br></p>")
   })
 
@@ -220,26 +220,26 @@ describe("DocTile", () => {
 
   it("can handle adding a mark to part of a textblock", () => {
     let tile = update(render(doc(p("one two"))), {changes: {from: 5, to: 8, add: Strong}})
-    ist(tile.dom.innerHTML, "<p>one <strong>two</strong></p>")
+    ist(html(tile), "<p>one <strong>two</strong></p>")
   })
 
   it("can handle a change moving content up", () => {
     let tile = update(render(doc(blockquote(p("abc")))), {
       changes: [{from: 0, to: 2, insert: [Paragraph]}, {from: 6, to: 7}]
     })
-    ist(tile.dom.innerHTML, "<p>abc</p>")
+    ist(html(tile), "<p>abc</p>")
   })
 
   it("can handle a change moving content down", () => {
     let tile = update(render(doc(p("abc"))), {
       changes: [{from: 0, to: 1, insert: [Blockquote, Paragraph]}, {from: 5, insert: [Token.End]}]
     })
-    ist(tile.dom.innerHTML, "<blockquote><p>abc</p></blockquote>")
+    ist(html(tile), "<blockquote><p>abc</p></blockquote>")
   })
 
   it("handles insertion of text before a mark", () => {
     let tile = update(render(doc(p(strong("a"), "b"))), {changes: {from: 1, insert: [Leaf.text("x")]}})
-    ist(tile.dom.innerHTML, "<p>x<strong>a</strong>b</p>")
+    ist(html(tile), "<p>x<strong>a</strong>b</p>")
   })
 
   it("can handle random changes", () => {
@@ -253,16 +253,24 @@ describe("DocTile", () => {
         doc = tile.state.doc
       }
       if (!compareDOM(render(doc).dom, tile.dom)) {
-        ist(render(doc).dom.innerHTML, tile.dom.innerHTML)
+        ist(html(render(doc)), html(tile))
       }
     }
+  })
+
+  it("renders block buffers next to uneditable elements", () => {
+    Plot.Doc.noValidate(() => {
+      let buf = `<img class="wg-blockBuffer">`, fg = `<figure contenteditable="false"><img src="/x.webp"></figure>`
+      ist(render(doc(fig("/x.webp"), fig("/x.webp"), p(), fig("/x.webp"))).dom.innerHTML,
+          `${buf}${fg}${buf}${fg}<p><br></p>${fg}${buf}`)
+    })
   })
 
   describe("decoration", () => {
     it("can draw widgets around nodes", () => {
       let src = (side: "before" | "after" | "start" | "end") => Decoration.Tag.widget(Paragraph, side, inlineWidget.of(side))
       let node = render(doc(p("xyz"), hr), src("before"), src("start"), src("end"), src("after"))
-      ist(node.dom.innerHTML, "<span>before</span><p><span>start</span>xyz<span>end</span></p><span>after</span><hr>")
+      ist(html(node), "<span>before</span><p><span>start</span>xyz<span>end</span></p><span>after</span><hr>")
     })
 
     it("can reuse widgets when replacing next to them", () => {
@@ -293,17 +301,17 @@ describe("DocTile", () => {
         Decoration.Tag.widget(Heading, "end", t => inlineWidget.of("E" + t.param)),
         Decoration.Tag.widget(Heading, "after", t => inlineWidget.of("A" + t.param))
       ])
-      ist(node.dom.innerHTML, `<p>x</p><h2>y<span>E2</span></h2><span>A2</span>`)
+      ist(html(node), `<p>x</p><h2>y<span>E2</span></h2><span>A2</span>`)
       node = update(node, {changes: [
         {from: 0, to: 1, insert: [Heading.of(2)]},
         {from: 3, to: 4, insert: [Heading.of(3)]}
       ]})
-      ist(node.dom.innerHTML, `<h2>x<span>E2</span></h2><span>A2</span><h3>y<span>E3</span></h3><span>A3</span>`)
+      ist(html(node), `<h2>x<span>E2</span></h2><span>A2</span><h3>y<span>E3</span></h3><span>A3</span>`)
       node = update(node, {changes: [
         {from: 0, to: 1, insert: [Paragraph]},
         {from: 3, to: 4, insert: [Paragraph]}
       ]})
-      ist(node.dom.innerHTML, `<p>x</p><p>y</p>`)
+      ist(html(node), `<p>x</p><p>y</p>`)
     })
 
     it("doesn't break spanning wrappers on widgets", () => {
@@ -328,7 +336,7 @@ describe("DocTile", () => {
         return Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("x")), 1],
                                      [Decoration.Point.widget(inlineWidget.of("y")), 3]])
       }))
-      ist(node.dom.innerHTML, "<p><span>x</span>ab<span>y</span>c</p>")
+      ist(html(node), "<p><span>x</span>ab<span>y</span>c</p>")
     })
 
     it("can update widgets from a point set", () => {
@@ -338,7 +346,7 @@ describe("DocTile", () => {
         provide: f => Decoration.Point.source.of(s => s.field(f))
       })
       let node = update(render(doc(p("a"), p("b")), f), {})
-      ist(node.dom.innerHTML, "<p>a</p><p><span>y</span>b</p>")
+      ist(html(node), "<p>a</p><p><span>y</span>b</p>")
     })
 
     it("can update widgets in place", () => {
@@ -348,20 +356,19 @@ describe("DocTile", () => {
         provide: f => Decoration.Point.source.of(s => s.field(f))
       })
       let node = update(render(doc(p("a")), f), {})
-      ist(node.dom.innerHTML, "<p><span>y</span>a</p>")
+      ist(html(node), "<p><span>y</span>a</p>")
     })
 
     it("orders widgets by side", () => {
-      let w = (n: number) => Widget.create({render: () => span(n + ""), editable: true})
+      let w = (n: number) => Widget.create({render: () => span(n + "")})
       let src = (s: number) => Decoration.Point.source.of(() => Decoration.Point.set([[Decoration.Point.widget(w(s), {side: s}), 2]]))
-      ist(render(doc(p("xy")), src(1), src(-2), src(-1)).dom.innerHTML,
+      ist(html(render(doc(p("xy")), src(1), src(-2), src(-1))),
           "<p>x<span>-2</span><span>-1</span><span>1</span>y</p>")
     })
 
     it("can redraw widgets at the end of the document", () => {
       let widget = Widget.define({
-        render: v => Object.assign(document.createElement("b"), {textContent: v}),
-        editable: true
+        render: v => Object.assign(document.createElement("b"), {textContent: v})
       })
       let flip = Transaction.Effect.define()
       let field = GardState.Field.define({
@@ -372,25 +379,25 @@ describe("DocTile", () => {
       })
 
       let tile = update(render(doc(p("ab")), field), {effects: flip.of(null)})
-      ist(tile.dom.innerHTML, "<p>ab</p><b>y</b>")
+      ist(html(tile), "<p>ab</p><b>y</b>")
     })
 
     it("doesn't duplicate widgets on section boundaries", () => {
       let node = render(doc(p(strong("a"), $img)),
                         Decoration.Tag.widget(Image, "before", inlineWidget.of("!")))
-      ist(node.dom.innerHTML, "<p><strong>a</strong><span>!</span><img src=\"test.png\"></p>")
+      ist(html(node), "<p><strong>a</strong><span>!</span><img src=\"test.png\"></p>")
       node = update(node, {changes: [
         {from: 1, to: 2, remove: Strong},
         {from: 2, to: 3, insert: [$img]}
       ]})
-      ist(node.dom.innerHTML, "<p>a<span>!</span><img src=\"test.png\"></p>")
+      ist(html(node), "<p>a<span>!</span><img src=\"test.png\"></p>")
     })
 
     it("can decorate tags", () => {
       let pWrap = Decoration.Tag.wrapper(Paragraph, Elt.mk("div", {class: "pwrap"}, [0]))
       let iWrap = Decoration.Tag.wrapper(Image, Elt.mk("image", [0]))
-      ist(render(doc(p("a", $img)), [pWrap, iWrap]).dom.innerHTML,
-          `<div class="pwrap"><p>a<image${uned}><img src="test.png"></image></p></div>`)
+      ist(html(render(doc(p("a", $img)), [pWrap, iWrap])),
+          `<div class="pwrap"><p>a<image><img src="test.png"></image></p></div>`)
     })
 
     it("updates wrappers when they change", () => {
@@ -399,9 +406,9 @@ describe("DocTile", () => {
       let tile = render(doc(p("-")), Decoration.Range.source.of(s => {
         return Decoration.Range.set([[s.selection.from == 1 ? wA : wB, 1, 2]])
       }))
-      ist(tile.dom.innerHTML, `<p><span class="a">-</span></p>`)
+      ist(html(tile), `<p><span class="a">-</span></p>`)
       tile = update(tile, {selection: {anchor: 2}})
-      ist(tile.dom.innerHTML, `<p><span class="b">-</span></p>`)
+      ist(html(tile), `<p><span class="b">-</span></p>`)
     })
 
     it("can handle changes from range and point decorations in a single transactions", () => {
@@ -412,24 +419,24 @@ describe("DocTile", () => {
         return Decoration.Range.set([[Decoration.Range.attribute("data-m", String(s.selection.from)), 5, 6]])
       })
       let tile = update(render(doc(p("abcdef")), [point, range]), {selection: {anchor: 2}})
-      ist(tile.dom.innerHTML, `<p>a<span>y</span>bcd<span data-m="2">e</span>f</p>`)
+      ist(html(tile), `<p>a<span>y</span>bcd<span data-m="2">e</span>f</p>`)
     })
 
     it("can add attributes to tags", () => {
-      ist(render(doc(p("?")), Decoration.Tag.attribute(Paragraph, "lang", "nl")).dom.innerHTML, "<p lang=\"nl\">?</p>")
+      ist(html(render(doc(p("?")), Decoration.Tag.attribute(Paragraph, "lang", "nl"))), "<p lang=\"nl\">?</p>")
     })
 
     it("can remove attributes from tags", () => {
       let comp = GardState.Compartment.define()
       let node = render(doc(p("?")), comp.of(Decoration.Tag.attribute(Paragraph, "lang", "nl")))
       node = update(node, {effects: comp.reconfigure([])})
-      ist(node.dom.innerHTML, "<p>?</p>")
+      ist(html(node), "<p>?</p>")
     })
 
     it("preserves DOM nodes when adding attributes", () => {
       let node = render(doc(p("a"))), para = node.dom.firstChild
       node = update(node, {effects: GardState.reconfigure.of(Decoration.Tag.attribute(Paragraph, "lang", "nl"))})
-      ist(node.dom.innerHTML, "<p lang=\"nl\">a</p>")
+      ist(html(node), "<p lang=\"nl\">a</p>")
       ist(node.dom.firstChild, para)
     })
 
@@ -444,46 +451,46 @@ describe("DocTile", () => {
         })
       })
       let node = update(render(doc(p("a"), p("b"), p("c")), classes), {changes: {from: 0, to: 3}})
-      ist(node.dom.innerHTML, `<p class="c1">b</p><p class="c2">c</p>`)
+      ist(html(node), `<p class="c1">b</p><p class="c2">c</p>`)
     })
 
     it("can take wrappers from spans", () => {
-      ist(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
+      ist(html(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
         return Decoration.Range.set([[Decoration.Range.wrapper("span", {attributes: {class: "a"}}), 2, 5]])
-      })).dom.innerHTML, "<p>a<span class=\"a\">b<img src=\"test.png\">c</span>d</p>")
+      }))), "<p>a<span class=\"a\">b<img src=\"test.png\">c</span>d</p>")
     })
 
     it("can take attributes from spans", () => {
-      ist(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
+      ist(html(render(doc(p("ab", $img, "cd")), Decoration.Range.source.of(s => {
         return Decoration.Range.set([[Decoration.Range.attribute("alt", "a test", {query: Image}), 2, 5]])
-      })).dom.innerHTML, "<p>ab<img alt=\"a test\" src=\"test.png\">cd</p>")
+      }))), "<p>ab<img alt=\"a test\" src=\"test.png\">cd</p>")
     })
 
     it("notices changes to spans that start before a preserved section", () => {
-      ist(update(render(doc(p("abcd")), Decoration.Range.source.of(s => {
+      ist(html(update(render(doc(p("abcd")), Decoration.Range.source.of(s => {
         let wrap = Decoration.Range.wrapper("span", {attributes: {class: s.doc.length % 2 ? "x" : "y"}})
         return Decoration.Range.set([[wrap, 1, s.doc.length - 1]])
       })), {
         changes: {from: 3, insert: [Leaf.text("/")]}
-      }).dom.innerHTML, `<p><span class="x">ab/cd</span></p>`)
+      })), `<p><span class="x">ab/cd</span></p>`)
     })
 
     it("can override a specific leaf node's shape", () => {
-      ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
+      ist(html(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
         return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("span", ["!"])), 3]])
-      })).dom.innerHTML, `<p>ab<span${uned}>!</span>cd</p>`)
+      }))), `<p>ab<span>!</span>cd</p>`)
     })
 
     it("can override a specific non-leaf node's shape", () => {
-      ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
+      ist(html(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
         return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", [0])), 0]])
-      })).dom.innerHTML, "<div>ab<img src=\"test.png\">cd</div>")
+      }))), "<div>ab<img src=\"test.png\">cd</div>")
     })
 
     it("can give a plot an atomic shape", () => {
-      ist(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
+      ist(html(render(doc(p("ab", $img, "cd")), Decoration.Point.source.of(state => {
         return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", ["?"])), 0]])
-      })).dom.innerHTML, `<div${uned}>?</div>`)
+      }))), `<div>?</div>`)
     })
 
     it("can dynamically redraw a plot as an atom", () => {
@@ -491,7 +498,7 @@ describe("DocTile", () => {
       tile = update(tile, {effects: GardState.appendConfig.of(Decoration.Point.source.of(state => {
         return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", ["?"])), 0]])
       }))})
-      ist(tile.dom.innerHTML, `<div${uned}>?</div>`)
+      ist(html(tile), `<div>?</div>`)
     })
 
     it("can dynamically redraw an atom plot as a regular plot", () => {
@@ -499,26 +506,26 @@ describe("DocTile", () => {
         return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", ["?"])), 0]])
       }))
       tile = update(tile, {effects: GardState.reconfigure.of([])})
-      ist(tile.dom.innerHTML, "<p>abc</p>")
+      ist(html(tile), "<p>abc</p>")
     })
 
     it("can change between normal plot and atom plot", () => {
       let atomH = Decoration.Tag.shape(Heading, Elt.mk("h1", ["H"]))
       let tile = update(render(doc(h1("abcd")), atomH), {changes: {from: 0, to: 1, insert: [Paragraph]}})
-      ist(tile.dom.innerHTML, "<p>abcd</p>")
+      ist(html(tile), "<p>abcd</p>")
       tile = update(tile, {changes: {from: 0, to: 1, insert: [Heading.of(1)]}})
-      ist(tile.dom.innerHTML, `<h1${uned}>H</h1>`)
+      ist(html(tile), `<h1>H</h1>`)
     })
 
     it("can add attributes to a specific node", () => {
       let deco = Decoration.Point.set([[Decoration.Point.attributes({class: "u"}), 0]])
-      ist(render(doc(p(), p()), Decoration.Point.source.of(() => deco)).dom.innerHTML,
+      ist(html(render(doc(p(), p()), Decoration.Point.source.of(() => deco))),
           "<p class=\"u\"><br></p><p><br></p>")
     })
 
     it("won't try to add attributes to a text node", () => {
       let deco = Decoration.Point.set([[Decoration.Point.attributes({class: "u"}), 1]])
-      ist(render(doc(p("a")), Decoration.Point.source.of(() => deco)).dom.innerHTML, "<p>a</p>")
+      ist(html(render(doc(p("a")), Decoration.Point.source.of(() => deco))), "<p>a</p>")
     })
 
     it("doesn't leave stale decorations on complex changes", () => {
@@ -537,7 +544,7 @@ describe("DocTile", () => {
 
     it("can add wrapping structure to a specific node", () => {
       let deco = Decoration.Point.set([[Decoration.Point.wrapper(Elt.mk("div", [Elt.mk("hr"), 0])), 3]])
-      ist(render(doc(p("x"), p("y")), Decoration.Point.source.of(() => deco)).dom.innerHTML,
+      ist(html(render(doc(p("x"), p("y")), Decoration.Point.source.of(() => deco))),
           "<p>x</p><div><hr><p>y</p></div>")
     })
 
@@ -546,42 +553,42 @@ describe("DocTile", () => {
       let node = update(render(doc(p("x"), p("y"))), {
         effects: GardState.appendConfig.of(Decoration.Point.source.of(() => deco))
       })
-      ist(node.dom.innerHTML, "<div><hr><p>x</p></div><p>y</p>")
+      ist(html(node), "<div><hr><p>x</p></div><p>y</p>")
     })
 
     it("can replace the shape of a node type", () => {
       let tile = render(doc(p("a", $img, "b")), Decoration.Tag.shape(Image, Elt.mk("span", {"class": "img"})))
-      ist(tile.dom.innerHTML, `<p>a<span class="img"${uned}></span>b</p>`)
+      ist(html(tile), `<p>a<span class="img"></span>b</p>`)
     })
 
     it("properly handles insertions at the start and end of wrapping structure", () => {
       let wrapPara = Decoration.Tag.shape(Paragraph, Elt.mk("div", [Elt.mk("p", [0])]))
       let tile = render(doc(p("ab")), wrapPara)
       tile = update(tile, {changes: {from: 3, insert: [Leaf.text("x")]}})
-      ist(tile.dom.innerHTML, "<div><p>abx</p></div>")
+      ist(html(tile), "<div><p>abx</p></div>")
       tile = update(tile, {changes: {from: 1, insert: [Leaf.text("y")]}})
-      ist(tile.dom.innerHTML, "<div><p>yabx</p></div>")
+      ist(html(tile), "<div><p>yabx</p></div>")
     })
 
     it("can handle changes inside atomic plots", () => {
       let tile = render(doc(p("abcd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       let para = tile.dom.querySelector("para")
       tile = update(tile, {changes: {from: 1, insert: [Leaf.text("--")]}})
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
+      ist(html(tile), `<para></para>`)
       ist(tile.dom.querySelector("para"), para)
     })
 
     it("can handle deletion inside an atomic plot", () => {
       let tile = render(doc(p("abcd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       tile = update(tile, {changes: {from: 2, to: 4}})
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
-      ist(tile.children[0].length, 4)
+      ist(html(tile), `<para></para>`)
+      ist(tile.children[1].length, 4)
     })
 
     it("can handle changes covering parts of atomic plots", () => {
       let tile = render(doc(p("ab"), p("cd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       tile = update(tile, {changes: {from: 2, to: 6}})
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
+      ist(html(tile), `<para></para>`)
     })
 
     it("can handle changes covering parts of wrapped atomic plots", () => {
@@ -590,20 +597,20 @@ describe("DocTile", () => {
         Decoration.Tag.wrapper(Paragraph, Elt.mk("outer", [0]))
       ])
       tile = update(tile, {changes: {from: 2, to: 6, insert: [Plot.End, Paragraph]}})
-      ist(tile.dom.innerHTML, `<outer${uned}><para></para></outer><outer${uned}><para></para></outer>`)
+      ist(html(tile), `<outer><para></para></outer><outer><para></para></outer>`)
     })
 
     it("can handle changes covering the start of atomic plots", () => {
       let tile = render(doc(h2("ab"), p("cd")), Decoration.Tag.shape(Paragraph, Elt.mk("para")))
       tile = update(tile, {changes: {from: 2, to: 6, insert: [Plot.End, Paragraph]}})
-      ist(tile.dom.innerHTML, `<h2>a</h2><para${uned}></para>`)
+      ist(html(tile), `<h2>a</h2><para></para>`)
     })
 
     it("supports selectors for wrapper decorations", () => {
       let complexImg = Decoration.Tag.shape(Image, i => Elt.mk("span", {class: "my-image"}, [Elt.mk("img", {src: i.param})]))
       let deco = Decoration.Point.set([[Decoration.Point.wrapper(Elt.mk("span", {class: "inner"}, [0]), {target: "img"}), 2]])
       let tile = render(doc(p("»", $img)), [complexImg, Decoration.Point.source.of(() => deco)])
-      ist(tile.dom.innerHTML, `<p>»<span class="my-image"${uned}><span class="inner"><img src="test.png"></span></span></p>`)
+      ist(html(tile), `<p>»<span class="my-image"><span class="inner"><img src="test.png"></span></span></p>`)
     })
 
     it("can reuse DOM structure when adding a shape wrapper", () => {
@@ -622,17 +629,17 @@ describe("DocTile", () => {
     })
 
     it("can override shapes by tag", () => {
-      ist(render(doc(p("a")), Decoration.Tag.shape(Paragraph, Elt.mk("div", {class: "para"}, [0]))).dom.innerHTML,
+      ist(html(render(doc(p("a")), Decoration.Tag.shape(Paragraph, Elt.mk("div", {class: "para"}, [0])))),
           "<div class=\"para\">a</div>")
     })
 
     it("makes by-point shapes override by-tag ones", () => {
-      ist(render(doc(p("a")), [
+      ist(html(render(doc(p("a")), [
         Decoration.Tag.shape(Paragraph, Elt.mk("div", {class: "b"}, [0])),
         Decoration.Point.source.of(state => {
           return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", {class: "a"}, [0])), 0]])
         })
-      ]).dom.innerHTML, "<div class=\"a\">a</div>")
+      ])), "<div class=\"a\">a</div>")
     })
 
     it("properly updates when tag shapes change", () => {
@@ -640,7 +647,7 @@ describe("DocTile", () => {
       tile = update(tile, {
         effects: GardState.appendConfig.of(Decoration.Tag.shape(Paragraph, Elt.mk("para", [0])))
       })
-      ist(tile.dom.innerHTML, "<para>a</para>")
+      ist(html(tile), "<para>a</para>")
     })
 
     it("properly updates when positional shapes change", () => {
@@ -650,7 +657,7 @@ describe("DocTile", () => {
           return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("para")), 0]])
         }))
       })
-      ist(tile.dom.innerHTML, `<para${uned}></para>`)
+      ist(html(tile), `<para></para>`)
     })
 
     it("renders shape atoms at the end of a positional shape change", () => {
@@ -660,14 +667,14 @@ describe("DocTile", () => {
           return Decoration.Point.set([[Decoration.Point.shape(Elt.mk("div", [Elt.mk("p", [0]), Elt.mk("after")])), 0]])
         }))
       })
-      ist(tile.dom.innerHTML, `<div><p>a</p><after${uned}></after></div>`)
+      ist(html(tile), `<div><p>a</p><after></after></div>`)
     })
 
     it("keeps to-the-side node structure in place when the node's content changes", () => {
       let paraShape = Decoration.Tag.shape(Paragraph, Elt.mk("div", [Elt.mk("before"), Elt.mk("p", [0]), Elt.mk("after")]))
       let tile = update(render(doc(p("abc")), paraShape), {changes: {from: 2, to: 3}})
-      ist(tile.dom.innerHTML,
-          `<div><before${uned}></before><p>ac</p><after${uned}></after></div>`)
+      ist(html(tile),
+          `<div><before></before><p>ac</p><after></after></div>`)
     })
 
     it("supports dynamic shapes", () => {
@@ -680,20 +687,20 @@ describe("DocTile", () => {
         cls.of("a")
       ])
       tile = update(tile, {selection: {anchor: 1}})
-      ist(tile.dom.innerHTML, `<hr class="a">`)
+      ist(html(tile), `<hr class="a">`)
       ist(called, 1)
       tile = update(tile, {effects: GardState.appendConfig.of(GardState.prec.high(cls.of("b")))})
-      ist(tile.dom.innerHTML, `<hr class="b">`)
+      ist(html(tile), `<hr class="b">`)
     })
 
     it("can change the shape of element marks", () => {
-      ist(render(doc(p(strong("ab"))), Decoration.Mark.shape(Strong, {element: "b"})).dom.innerHTML,
+      ist(html(render(doc(p(strong("ab"))), Decoration.Mark.shape(Strong, {element: "b"}))),
           "<p><b>ab</b></p>")
     })
 
     it("can change the shape of attribute marks", () => {
       let deco = Decoration.Mark.shape(ImageAlt, {attribute: "aria-description", value: 0})
-      ist(render(doc(p(imgAlt("p", $img))), deco).dom.innerHTML,
+      ist(html(render(doc(p(imgAlt("p", $img))), deco)),
           `<p><img aria-description="p" src="test.png"></p>`)
     })
   })

@@ -795,7 +795,13 @@ class TilePointer {
   tileAfter() {
     let {tile, index} = this
     if (tile.isAtom) return tile
-    return index < tile.children.length ? tile.children[index] : null
+    for (; index < tile.children.length; index++) {
+      let next = tile.children[index]
+      // Skip widget type injected by tile builder
+      if (!(next instanceof WidgetTile && (next.widget == Widget.blockImg || next.widget == Widget.br)))
+        return next
+    }
+    return null
   }
 
   matchingWrapper(elt: DecoElt, spanning: boolean, reused: Map<Tile, Reused>) {
