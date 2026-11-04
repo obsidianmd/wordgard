@@ -133,6 +133,16 @@ export namespace Widget {
   })
 
   /// @internal
+  export const blockImg = Widget.create({
+    render() {
+      let img = document.createElement("img")
+      img.className = "wg-blockBuffer"
+      return img
+    },
+    editable: true
+  })
+
+  /// @internal
   export const br = Widget.create({
     render() { return document.createElement("br") },
     editable: true
