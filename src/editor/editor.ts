@@ -262,8 +262,8 @@ export class Wordgard {
     }
 
     let margins = this.getScrollMargins()
-    let targetRect = new DOMRect(rect.left + margins.left, rect.top + margins.top,
-                                 rect.width - margins.left - margins.right, rect.height - margins.top - margins.bottom)
+    let targetRect = new DOMRect(rect.left - margins.left, rect.top - margins.top,
+                                 rect.width + margins.left + margins.right, rect.height + margins.top + margins.bottom)
     let {offsetWidth, offsetHeight} = this.scrollDOM
     scrollRectIntoView(this.scrollDOM, targetRect, assoc, target.spec.x, target.spec.y,
                        Math.max(Math.min(target.spec.xMargin, offsetWidth), -offsetWidth),
