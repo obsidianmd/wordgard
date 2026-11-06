@@ -124,6 +124,9 @@ export const baseStyles = buildTheme("." + styleID, {
     verticalAlign: "bottom",
     height: "1em",
   },
+  ".wg-blockBuffer": {
+    position: "absolute"
+  },
 
   "wg-placeholder": {
     opacity: "0.6",

@@ -211,7 +211,11 @@ export class DOMObserver {
       if (tile == this.wg.docTile) {
         return null
       } else if (tile.dom == record.target) {
-        return [tile.posBefore, tile.posAfter]
+        if (!tile.isNodeInner) return [tile.posBefore, tile.posAfter]
+        while (tile.parent && tile.isNodeInner) tile = tile.parent
+        if (tile.isDoc) return null
+        let nodePos = tile.posBefore
+        return [nodePos, nodePos + 1]
       } else {
         return childRange(tile, record)
       }
