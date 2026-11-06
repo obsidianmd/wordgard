@@ -117,7 +117,7 @@ export namespace Transaction {
     /// scroll the current selection into view.
     scrollIntoView?: boolean,
     /// Only meaningful for specs that are combined with another
-    /// transaction spec (via {@link Transaction.merge or by being
+    /// transaction spec (via {@link Transaction.merge} or by being
     /// returned from an {@link Transaction.extender extender}.
     /// Normally, when specs are combined, the positions in `changes`
     /// are taken to refer to the document positions in the initial

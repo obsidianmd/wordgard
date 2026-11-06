@@ -727,7 +727,7 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
   }
   build(spec)
   flush()
-  return !accum ? ChangeSet.empty(doc.length) : doCorrect && mayCorrect ? (accum as any).correct(doc) : accum
+  return !accum ? ChangeSet.empty(doc.length) : doCorrect && mayCorrect ? (accum as ChangeSet).correct(doc) : accum
 }
 
 function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: boolean, fit: boolean) {
