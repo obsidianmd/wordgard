@@ -28,6 +28,12 @@ describe("Context", () => {
   testPos("can find a position in a nested block", doc(p(), ul(li(p(), p(0)))),
          ["Paragraph", 0], ["ListItem", 1], ["BulletList", 0], ["Doc", 1])
 
+  it("can find the parent at each depth", () => {
+    let d = doc(p(), ul(li(p(), p(0, "x")))), pos = d.resolve(tag(d, 0))
+    ist(pos.depth, 3)
+    ist(["Doc", "BulletList", "ListItem", "Paragraph"].map((_, d) => pos.parentAt(d).node.name).join(), "Doc,BulletList,ListItem,Paragraph")
+  })
+
   it("can walk through a document", () => {
     let d = doc(p("one"), ul(li(p("a", br, "b"), p())))
     let cx = d.resolve(0)
