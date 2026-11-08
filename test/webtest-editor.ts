@@ -124,4 +124,16 @@ describe("Wordgard", () => {
     document.body.classList.remove("c1")
     ist(geoChanges, 1)
   })
+
+  it("scrolls the cursor clear of covered margins", () => {
+    let lines = []
+    for (let i = 0; i < 40; i++) lines.push(p("line " + i))
+    let wg = tempEditor(doc(...lines), [Wordgard.coveredMargins.of(() => ({bottom: 50}))])
+    wg.scrollDOM.style.height = "200px"
+    wg.scrollDOM.style.overflowY = "auto"
+    let pos = wg.posAtDOM(wg.contentDOM.children[20].firstChild!, 2)
+    wg.dispatch({selection: {anchor: pos}, scrollIntoView: true})
+    wg.flush()
+    ist(wg.coordsAtPos(pos).bottom, wg.scrollDOM.getBoundingClientRect().bottom - 50, "<=")
+  })
 })
