@@ -1357,7 +1357,10 @@ class ContentUpdate {
         prev.parent = cur
       }
       // Move any point tiles after the wrapper into it
-      for (let j = i + 1; j < cur.children.length; j++) prev.addChild(cur.children[j])
+      for (let j = i + 1; j < cur.children.length; j++) {
+        prev.addChild(cur.children[j])
+        cur.children.splice(j, 1)
+      }
       return prev
     }
     return null

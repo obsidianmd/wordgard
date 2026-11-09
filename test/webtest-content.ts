@@ -317,7 +317,9 @@ describe("DocTile", () => {
     it("doesn't break spanning wrappers on widgets", () => {
       let src = (side: "before" | "after" | "start" | "end") => Decoration.Tag.widget(Image, side, inlineWidget.of(side))
       let node = render(doc(p(strong("x", $img, "y"))), src("before"), src("after"))
-      ist(node.dom.querySelectorAll("strong").length, 1)
+      let spanning = node.dom.querySelectorAll("strong")
+      ist(spanning.length, 1)
+      ist(node.dom.querySelector("span")!.parentNode, spanning[0])
     })
 
     it("keeps structure entirely the same on a no-change update", () => {
