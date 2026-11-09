@@ -934,7 +934,7 @@ export class DecoIterator {
         if (started) this.widgets(node.tag, WidgetPlace.Before, walker)
         else started = true
         let hasPending = pendingPos == pos && !node.isText
-        let shape = hasPending && pendingShape ? pendingShape.shape : this.tagShape(node.tag, iter.active)
+        let shape = this.tagShape(node.tag, iter.active, hasPending ? pendingShape : null)
         if (hasPending) for (let deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         if (shape.hasContent) throw new Error("Leaf nodes shapes shouldn't have a content hole")
         walker.node(node, shape, this.nodeWrappers(node.tag, iter.active, true), undefined)
@@ -943,8 +943,7 @@ export class DecoIterator {
       enterPlot: (node, pos) => {
         if (started) this.widgets(node.tag, WidgetPlace.Before, walker)
         else started = true
-        let shape = pendingShape && pendingPos == pos ? pendingShape.shape
-          : this.tagShape(node.tag, iter.active)
+        let shape = this.tagShape(node.tag, iter.active, pendingShape && pendingPos == pos ? pendingShape : null)
         if (pendingPos == pos) for (let deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         let wrappers = this.nodeWrappers(node.tag, iter.active, !shape.hasContent)
         let atom = !shape.hasContent
@@ -1009,9 +1008,8 @@ export class DecoIterator {
     this.pos = pos
   }
 
-  tagShape(tag: Node.Tag, active: Decoration.Range[]) {
-    let override = this.tagShapes.get(tag.type)
-    let shape = override ? override(tag) : baseTagShape(tag)
+  tagShape(tag: Node.Tag, active: Decoration.Range[], fromPoint: ShapeDecoration | null) {
+    let shape = fromPoint ? fromPoint.shape : this.tagShapes.get(tag.type)?.(tag) ?? baseTagShape(tag)
     if (tag.marks.length) shape = addMarkAttributes(this.markShapes, shape, tag)
     let add: string[] | undefined
     for (let src of this.globalAttrs) if (tag.type == src.type) {
