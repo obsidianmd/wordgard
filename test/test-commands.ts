@@ -167,6 +167,10 @@ describe("liftEmptyBlock", () => {
   it("can lift blocks with an inline node", () => {
     test(doc(blockquote(p(sp(0)))), liftEmptyBlock, doc(p(sp(0))))
   })
+
+  it("will split continued list items", () => {
+    test(doc(ul(li(p("one"), p(0)), li(p("two")))), liftEmptyBlock, doc(ul(li(p("one")), li(p(0)), li(p("two")))))
+  })
 })
 
 describe("liftEmptyBlock", () => {
