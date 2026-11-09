@@ -3,7 +3,7 @@ import {GardSelection, GardState, Transaction} from "wordgard/state"
 import {type Wordgard} from "wordgard/editor"
 import {Alignment, Direction, Emphasis, Strong, Underline} from "wordgard/types"
 import {Command} from "./command"
-import {joinForward, joinBackward, liftEmptyBlock, enterInCode,
+import {joinForward, joinBackward, liftEmptyBlock, liftTextblock, enterInCode,
         clearNonFitting, autoJoinBlocks,
         deleteSelection, deleteEmptyPlot, deleteForward, deleteBackward,
         splitTextblock, joinListItems, findUnwrappable, doUnwrapBlock,
@@ -99,7 +99,7 @@ export const deleteUnit: Command.Pure<"forward" | "backward"> = ({state}, dir) =
   if (state.readOnly) return false
   return deleteSelection(state) || (dir == "forward"
     ? joinForward(state) || deleteEmptyPlot(state, 1) || deleteForward(state)
-    : joinListItems(state) || joinBackward(state) || deleteEmptyPlot(state, -1) || deleteBackward(state))
+    : joinListItems(state) || liftTextblock(state) || joinBackward(state) || deleteEmptyPlot(state, -1) || deleteBackward(state))
 }
 
 /// Delete the selection, or the word next to it. Will behave like

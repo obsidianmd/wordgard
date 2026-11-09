@@ -94,6 +94,7 @@ export {
 } from "./commands"
 export {
   liftEmptyBlock,
+  liftTextblock,
   splitTextblock,
   enterInCode,
   deleteSelection,
