@@ -947,20 +947,23 @@ export class DecoIterator {
         if (pendingPos == pos) for (let deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         let wrappers = this.nodeWrappers(node.tag, iter.active, !shape.hasContent)
         let atom = !shape.hasContent
-        if (atom) walker.node(node!, shape, wrappers, pos + node.length > to ? to - pos : undefined)
-        else walker.enter(node!, shape as DecoElt, wrappers)
-        this.widgets(node.tag, WidgetPlace.Start, walker)
+        if (atom) {
+          walker.node(node!, shape, wrappers, pos + node.length > to ? to - pos : undefined)
+        } else {
+          walker.enter(node!, shape as DecoElt, wrappers)
+          this.widgets(node.tag, WidgetPlace.Start, walker)
+        }
         return !atom
       },
       leavePlot: tag => {
-        if (started) this.widgets(tag, WidgetPlace.End, walker)
+        if (started && !atomParent) this.widgets(tag, WidgetPlace.End, walker)
         else started = true
         walker.leave()
         this.widgets(tag, WidgetPlace.After, walker)
       }
     }
 
-    if (inclusiveStart) {
+    if (inclusiveStart && !atomParent) {
       let before = pos.nodeBefore
       if (before) this.widgets(before.tag, WidgetPlace.After, walker)
       else this.widgets(pos.parent.node.tag, WidgetPlace.Start, walker)
@@ -971,8 +974,10 @@ export class DecoIterator {
         let end = Math.min(to, atomParent.after), done = atomParent.after <= to
         walker.nodePart(atomParent.node, end - pos.pos, done)
         pos = pos.advance(end - pos.pos)
-        if (done) this.widgets(atomParent.node.tag, WidgetPlace.After, walker)
-        atomParent = undefined
+        if (done) {
+          this.widgets(atomParent.node.tag, WidgetPlace.After, walker)
+          atomParent = undefined
+        }
         while (iter.point && iter.from < end) iter.next()
       } else if (iter.point) {
         let value = iter.point
