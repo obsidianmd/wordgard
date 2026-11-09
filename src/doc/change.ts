@@ -627,6 +627,40 @@ class ChangeSetBuilder {
   sections: number[] = []
   data: SectionData[] = []
   pos = 0
+
+  addSection(from: number, to: number, ins: number, value: SectionData) {
+    if (from >= this.pos) {
+      addSection(this.sections, this.data, from - this.pos, -1, null)
+      addSection(this.sections, this.data, to - from, ins, value)
+      this.pos = to
+      return true
+    }
+    if (this.sections.length && this.sections[0] > to && this.sections[1] == -1) {
+      // Fits into initial kept section
+      this.spliceSection(0, from, to, ins, value)
+      return true
+    }
+    // Scan back to see if there's another kept section this would fit in
+    for (let pos = this.pos, i = this.sections.length; i > 2 && pos > to;) {
+      let nextIns = this.sections[--i], nextLen = this.sections[--i]
+      let start = pos - nextLen
+      if (nextIns == -1 && start < from) {
+        this.spliceSection(i, from - start, to - start, ins, value)
+        return true
+      }
+      pos = start
+    }
+    return false
+  }
+
+  spliceSection(i: number, from: number, to: number, ins: number, value: SectionData) {
+    let sections: number[] = [], data: SectionData[] = []
+    addSection(sections, data, from, -1, null)
+    addSection(sections, data, to - from, ins, value)
+    addSection(sections, data, this.sections[i] - to, -1, null)
+    this.sections.splice(i, 2, ...sections)
+    this.data.splice(i >> 1, 1, ...data)
+  }
 }
 
 function sliceLen(tokens: readonly Token[]) {
@@ -649,13 +683,11 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
     accum = accum ? accum.compose(transform(set, accum, doc, false, false).set) : set
   }
   let section = (from: number, to: number, ins: number, value: SectionData) => {
-    if (!cur || from < cur.pos) {
+    if (!cur?.addSection(from, to, ins, value)) {
       flush()
       cur = new ChangeSetBuilder(doc.length)
+      cur.addSection(from, to, ins, value)
     }
-    if (from > cur.pos) addSection(cur.sections, cur.data, from - cur.pos, -1, null)
-    addSection(cur.sections, cur.data, to - from, ins, value)
-    cur.pos = to
   }
 
   let build = (spec: ChangeSet.Spec) => {
