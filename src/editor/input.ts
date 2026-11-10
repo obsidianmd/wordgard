@@ -8,7 +8,8 @@ import {findClusterBreak} from "@marijn/find-cluster-break"
 import {Wordgard} from "./editor"
 import {rangeForClick} from "./selection"
 import browser from "./browser"
-import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex} from "./dom"
+import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex,
+        isEquivalentPosition, getSelectionRange} from "./dom"
 import {readClipboard, writeClipboard} from "./clipboard"
 import {eqArray, logException} from "./util"
 import {Tile, TextTile, WidgetTile, CoordPos} from "./tile"
@@ -45,7 +46,7 @@ export const eventObserver = GardState.Facet.define<
 type InputEventData = {
   inputType: string
   data: string | null
-  domRange: {from: number, to: number} | null
+  domRange: {from: number, to: number, range: StaticRange} | null
 }
 
 // These are all covered by insertCompositionText in the post-2017
@@ -268,9 +269,14 @@ export class InputState {
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       Command.dispatch(wg, insertText, {from, to, insert, userEvent: "input.type"})
     } else if (type == "insertFromPaste") {
-      let {from, to} = this.unflushedSelection ? wg.state.selection.replacementRange : range!
+      let isSel = this.unflushedSelection
+      if (!isSel) {
+        let r = data.domRange!.range, domSel = getSelectionRange(wg.root)
+        isSel = !!domSel && isEquivalentPosition(r.startContainer, r.startOffset, domSel.startContainer, domSel.startOffset) &&
+          isEquivalentPosition(r.endContainer, r.endOffset, domSel.endContainer, domSel.endOffset)
+      }
+      let {from, to} = isSel ? wg.state.selection : range!
       let slice = readClipboard(wg.state, event.dataTransfer!, wg.state.doc.resolve(from), wg.inputState.shiftKey)
-      let isSel = from == wg.state.selection.replacementRange.from && to == wg.state.selection.replacementRange.to
       if (isSel && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty)))
         return
       if (slice) {
@@ -868,7 +874,7 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     if (ranges.length) {
       let r = ranges[0], empty = r.collapsed
       let from = wg.inputState.getDOMPos(r.startContainer, r.startOffset)
-      data.domRange = {from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset)}
+      data.domRange = {from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset), range: r}
       editable = inEditableDOM(wg, r.startContainer) && (empty || inEditableDOM(wg, r.endContainer))
     }
     wg.inputState.beforeInput(event, wg.inputState.pendingInputEvent = data)

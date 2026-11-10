@@ -1,4 +1,5 @@
 import {Tile, TileFlag} from "./tile"
+import browser from "./browser"
 
 export type DOMNode = Node
 
@@ -17,6 +18,16 @@ export function getSelection(root: DocumentOrShadowRoot): Selection | null {
     target = root as Document
   }
   return target.getSelection()
+}
+
+export function getSelectionRange(root: DocumentOrShadowRoot): StaticRange | null {
+  let sel = getSelection(root)
+  if (!sel) return null
+  if (browser.safari && (root as any).nodeType == 11) {
+    let range = (sel as any).getComposedRanges(root)[0]
+    if (range) return range
+  }
+  return new StaticRange(sel.getRangeAt(0))
 }
 
 export function hasSelection(dom: Element, selection: SelectionRange): boolean {
