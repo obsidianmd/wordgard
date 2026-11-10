@@ -280,7 +280,7 @@ export class GardState {
   isAtom(type: Node.Type) { return this.config.isAtom(type) }
 
   /// Return the extent of the word around the given position, as a
-  /// text selection.
+  /// text selection, or null if there is no word there.
   wordAt(pos: number, bias: -1 | 1 = 1) {
     return wordAt(this, pos, bias)
   }
