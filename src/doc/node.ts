@@ -698,6 +698,7 @@ export namespace Plot {
   export class Tag<Param = unknown> extends BaseTag<Param> implements Node.Tag.Shared<Param> {
     private constructor(readonly type: Plot.Type<Param>, param: Param, marks: Mark.Set) {
       super(param, marks)
+      if (this.type.isDoc && marks.length) throw new Error("Document nodes cannot have marks")
     }
 
     /// @internal
