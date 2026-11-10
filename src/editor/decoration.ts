@@ -1,8 +1,10 @@
 import {GardState, GardSelection} from "wordgard/state"
-import {Mark, Mark as Mark_, Pos, Plot, Leaf, Node, Shape as Shape_, ChangeSet, Schema, Elt, Attributes} from "wordgard/doc"
+import {Mark, Pos, Plot, Leaf, Node, Shape as Shape_, ChangeSet, Schema, Elt, Attributes} from "wordgard/doc"
 import {RangeSet, PointSet, Set} from "wordgard/set"
 import {addSection, Changes, addRange, joinRanges} from "./changes"
 import {type Wordgard} from "./editor"
+
+import Mark_ = Mark
 
 /// A widget describes a piece of DOM content that can be used to
 /// render a node, a part of a node, or an extra element added via a
