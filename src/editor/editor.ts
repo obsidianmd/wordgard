@@ -802,6 +802,13 @@ export class Wordgard {
   /// This is only used by plugins that introduce elements that cover
   /// part of the editor (for example a gutter).
   static coveredMargins = GardState.Facet.define<(wg: Wordgard) => Partial<DOMRect> | null>()
+
+  /// Given a DOM element that may be a Wordgard editor, retrieve its
+  /// editor instance.
+  static findFromDOM(elt: Element): Wordgard | null {
+    let wg = (elt as any).wg
+    return wg instanceof Wordgard ? wg : null
+  }
 }
 
 let _wrapElement: {new (wg: Wordgard): HTMLElement} | null = null
