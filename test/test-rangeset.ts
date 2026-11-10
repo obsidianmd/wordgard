@@ -122,4 +122,12 @@ describe("RangeSet", () => {
     setA.compareRange(0, setB, 1, chunkSize * 3, () => ist(false))
     ist(accessCount, 10, "<")
   })
+
+  it("can create sets with more than two layers", () => {
+    let set = RangeSet.create([[V.a, 1, 3], [V.b, 2, 20], [V.c, 2, 4]])
+    ist(str(set), "a@1-3 c@2-4 b@2-20")
+    let seen = []
+    for (let cursor = set.cursor(10); cursor.value; cursor.next()) seen.push(cursor.value.name)
+    ist(seen.join(), "b")
+  })
 })

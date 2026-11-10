@@ -54,7 +54,10 @@ class SetBuilder<T extends RangeSet.Value> {
 
   addRange(value: T, from: number, to: number) {
     if (from >= to) throw new Error("Ranges cannot be empty")
-    ;(this.lastTo <= from ? this : this.next).addInner(value, from, to)
+    for (let target: SetBuilder<T> = this;; target = target.next) if (target.lastTo <= from) {
+      target.addInner(value, from, to)
+      break
+    }
   }
 
   addInner(value: T, from: number, to: number) {
