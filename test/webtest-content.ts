@@ -49,7 +49,7 @@ function compareDOM(a: Element | Text, b: Element | Text) {
 }
 
 function html(tile: DocTile) {
-  return tile.dom.innerHTML.replace(/ contenteditable="false"|<img class="wg-blockBuffer">/g, "")
+  return tile.dom.innerHTML.replace(/ contenteditable="false"|<img class="wg-blockBuffer" alt="">/g, "")
 }
 
 describe("DocTile", () => {
@@ -260,7 +260,7 @@ describe("DocTile", () => {
 
   it("renders block buffers next to uneditable elements", () => {
     Plot.Doc.noValidate(() => {
-      let buf = `<img class="wg-blockBuffer">`, fg = `<figure contenteditable="false"><img src="/x.webp"></figure>`
+      let buf = `<img class="wg-blockBuffer" alt="">`, fg = `<figure contenteditable="false"><img src="/x.webp"></figure>`
       ist(render(doc(fig("/x.webp"), fig("/x.webp"), p(), fig("/x.webp"))).dom.innerHTML,
           `${buf}${fg}${buf}${fg}<p><br></p>${fg}${buf}`)
     })
