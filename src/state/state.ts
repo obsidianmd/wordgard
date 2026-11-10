@@ -336,15 +336,20 @@ export namespace GardState {
       private compareF: (a: Value, b: Value) => boolean,
       /// @internal
       readonly spec: GardState.Field.Spec<Value>
-    ) {}
+    ) {
+      this.name = spec.name || null
+    }
 
     /// Define a state field.
     static define<Value>(config: GardState.Field.Spec<Value>): GardState.Field<Value> {
-      let field = new GardState.Field<Value>(nextID++, config.create, config.update,
-                                             config.compare || ((a, b) => a === b), config)
+      let field = new Field<Value>(nextID++, config.create, config.update,
+                                   config.compare || ((a, b) => a === b), config)
       if (config.provide) field.provides = config.provide(field)
       return field
     }
+
+    /// The field's debugging name, if given.
+    name: string | null
 
     private create(state: GardState) {
       let init = state.facet(initField).find(i => i.field == this)
@@ -388,11 +393,18 @@ export namespace GardState {
     init(create: (state: GardState) => Value): GardState.Extension {
       return [this, initField.of({field: this as any, create})]
     }
+
+    /// @internal
+    toString() { return "Field" + (this.name ? ":" + this.name : "") }
   }
 
   export namespace Field {
     /// The options passed when defining a state field.
     export type Spec<Value> = {
+      /// An optional name to associate with this field for debugging
+      /// purposes.
+      name?: string
+
       /// Creates the initial value for the field when a state is created.
       create: (state: GardState) => Value,
 
@@ -440,18 +452,22 @@ export namespace GardState {
       private constructor(
         /// @internal
         readonly value: (state: GardState) => Value,
-        private compareF: (a: Value, b: Value) => boolean
+        private compareF: (a: Value, b: Value) => boolean,
+        /// This field's debugging name, if given.
+        readonly name: string | null
       ) {}
 
       /// Define a derived field.
       static define<Value>(compute: (state: GardState) => Value, spec: {
+        /// An optional debugging name for this field.
+        name?: string
         /// Optional function used to compare the value of the field,
         /// to prevent propagating a change when a recomputed result
         /// is the same as the old value. Should return `true` when
         /// the inputs can be considered the same. Defaults to `===`.
         compare?: (a: Value, b: Value) => boolean
       } = {}) {
-        return new Derived(compute, spec.compare || ((a, b) => a === b))
+        return new Derived(compute, spec.compare || ((a, b) => a === b), spec.name || null)
       }
 
       /// Derived fields must be included in your state configuration
@@ -500,6 +516,9 @@ export namespace GardState {
           }
         }
       }
+
+      /// @internal
+      toString() { return "Field.Derived" + (this.name ? ":" + this.name : "") }
     }
   }
 
@@ -537,7 +556,9 @@ export namespace GardState {
       readonly compare: (a: Output, b: Output) => boolean,
       /// True when this is a static facet.
       readonly isStatic: boolean,
-      enables: GardState.Extension | undefined | ((self: GardState.Facet<Input, Output>) => GardState.Extension)
+      enables: GardState.Extension | undefined | ((self: GardState.Facet<Input, Output>) => GardState.Extension),
+      /// The facet's debug name.
+      readonly name: string | null
     ) {
       this.default = combine(none)
       this.extensions = typeof enables == "function" ? enables(this) : enables
@@ -553,7 +574,8 @@ export namespace GardState {
                                                 config.compareInput || ((a, b) => a === b),
                                                 config.compare || (!config.combine ? sameArray as any : (a, b) => a === b),
                                                 !!config.static,
-                                                config.enables)
+                                                config.enables,
+                                                config.name || null)
     }
 
     /// Returns an extension that provides the given value to this
@@ -598,19 +620,25 @@ export namespace GardState {
       return this.derive(s => get(s.field(field)))
     }
 
+    /// @internal
     tag!: Output
+
+    /// @internal
+    toString() { return "Facet" + (this.name ? ":" + this.name : "") }
   }
 
   export namespace Facet {
     /// Options passed when {@link GardState.Facet.define defining} a
     /// facet.
     export type Spec<Input, Output> = {
+      /// And optional name, to recognize the facet when debugging.
+      name?: string
       /// How to combine the input values into a single output value. When
       /// not given, the array of input values becomes the output. This
       /// function will immediately be called on creating the facet, with
       /// an empty array, to compute the facet's default value when no
       /// inputs are present.
-      combine?: (value: readonly Input[]) => Output,
+      combine?: (value: readonly Input[]) => Output
       /// How to compare output values to determine whether the value
       /// of the facet changed. When a new value for the facet is
       /// computed that that compares as equal to the old value, the
@@ -618,14 +646,14 @@ export namespace GardState {
       /// can be cheaply compared by identity to check for changes.
       /// Defaults to comparing by `===` or, if no `combine` function
       /// was given, comparing each element of the array with `===`.
-      compare?: (a: Output, b: Output) => boolean,
+      compare?: (a: Output, b: Output) => boolean
       /// How to compare input values to avoid recomputing the output
       /// value when no inputs changed. Defaults to comparing with `===`.
-      compareInput?: (a: Input, b: Input) => boolean,
+      compareInput?: (a: Input, b: Input) => boolean
       /// Forbids dynamic inputs to this facet. Allows the facet to be
       /// {@link GardState.Configuration.staticFacet read} from a
       /// configuration.
-      static?: boolean,
+      static?: boolean
       /// If given, these extensions (or the result of calling the
       /// given function with the facet) will be added to any state
       /// where this facet is provided. (Note that, while a facet's
@@ -784,7 +812,11 @@ export namespace GardState {
     }
   }
 
-  function flatten(extension: GardState.Extension, compartments: Map<GardState.Compartment, GardState.Extension>, newCompartments: Map<GardState.Compartment, GardState.Extension>) {
+  function flatten(
+    extension: GardState.Extension,
+    compartments: Map<GardState.Compartment, GardState.Extension>,
+    newCompartments: Map<GardState.Compartment, GardState.Extension>
+  ) {
     let result: (FacetProvider<any> | GardState.Field<any> | GardState.Field.Derived<any>)[][] = [[], [], [], [], []]
     let seen = new Map<GardState.Extension, number>()
     function inner(ext: GardState.Extension, prec: number) {
@@ -845,18 +877,18 @@ export namespace GardState {
   export const prec = {
     /// The highest precedence level, for extensions that should end up
     /// near the start of the precedence ordering.
-    highest: mkPrec(Prec.Highest),
+    highest: mkPrec(Prec.Highest, "Highest"),
     /// A higher-than-default precedence, for extensions that should
     /// come before those with default precedence.
-    high: mkPrec(Prec.High),
+    high: mkPrec(Prec.High, "High"),
     /// The default precedence, which is also used for extensions
     /// without an explicit precedence.
-    default: mkPrec(Prec.Default),
+    default: mkPrec(Prec.Default, "Default"),
     /// A lower-than-default precedence.
-    low: mkPrec(Prec.Low),
+    low: mkPrec(Prec.Low, "Low"),
     /// The lowest precedence level. Meant for things that should end up
     /// near the end of the extension order.
-    lowest: mkPrec(Prec.Lowest)
+    lowest: mkPrec(Prec.Lowest, "Lowest")
   }
 
   /// Extension compartments can be used to make a configuration
@@ -865,10 +897,13 @@ export namespace GardState {
   /// GardState.Compartment.reconfigure replace} that part through a
   /// transaction.
   export class Compartment {
-    private constructor() {}
+    private constructor(
+      /// The compartment's debugging name, if given.
+      readonly name: string | null
+    ) {}
 
     /// Define a new compartment.
-    static define() { return new Compartment }
+    static define(name?: string) { return new Compartment(name || null) }
 
     /// Create an instance of this compartment to add to your {@link
     /// GardState.Spec.config state configuration}.
@@ -888,6 +923,9 @@ export namespace GardState {
 
     /// @internal
     static reconfigureCompartment = Transaction.Effect.define<{compartment: GardState.Compartment, extension: GardState.Extension}>()
+
+    /// @internal
+    toString() { return "Compartment" + (this.name ? ":" + this.name : "") }
   }
 
   /// Facet used to register {@link Schema schema} elements. *If*
@@ -969,13 +1007,14 @@ function addValue<T>(set: T[], value: T) {
 
 const enum Prec { Lowest = 4, Low = 3, Default = 2, High = 1, Highest = 0}
 
-function mkPrec(value: number) {
-  return (ext: GardState.Extension) => new PrecExtension(ext, value) as GardState.Extension
+function mkPrec(value: number, name: string) {
+  return (ext: GardState.Extension) => new PrecExtension(ext, value, name) as GardState.Extension
 }
 
 class PrecExtension {
-  constructor(readonly inner: GardState.Extension, readonly prec: number) {}
+  constructor(readonly inner: GardState.Extension, readonly prec: number, readonly name: string) {}
   extension!: GardState.Extension
+  toString() { return `Prec.${this.name}(${this.inner})` }
 }
 
 function sameArray<T>(a: readonly T[], b: readonly T[]) {
@@ -1028,6 +1067,16 @@ class FacetProvider<Input> {
     // Value if this is a static facet
     readonly value: Input | null
   ) {}
+
+  toString() { return `${this.facet}(${this.flags & ProviderFlag.Static ? debugStr(this.value) : "dynamic"})` }
+}
+
+function debugStr(value: any): any {
+  let tp = typeof value
+  if (tp == "string") return JSON.stringify(value)
+  if (tp == "function") return /.*?\)/.exec(value.toString())?.[0] || value
+  if (Array.isArray(value)) return `[${value.map(debugStr)}]`
+  return value
 }
 
 function compareArray<T>(a: readonly T[], b: readonly T[], compare: (a: T, b: T) => boolean) {
@@ -1111,6 +1160,7 @@ function getAddr(state: GardState, addr: number) {
 class CompartmentInstance {
   constructor(readonly compartment: GardState.Compartment, readonly inner: GardState.Extension) {}
   extension!: GardState.Extension
+  toString() { return `${this.compartment}(${this.inner})` }
 }
 
 interface DynamicSlot {

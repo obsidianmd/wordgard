@@ -56,6 +56,9 @@ export class KeyBinding {
 
   /// Define a binding.
   static of(spec: KeyBinding.Spec) { return new KeyBinding(spec) }
+
+  /// @internal
+  toString() { return `KeyBinding:${this.spec.key || this.spec.char || "??"}` }
 }
 
 export namespace KeyBinding {

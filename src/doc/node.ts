@@ -294,6 +294,13 @@ export namespace Node {
   /// queries).
   export type Query = Node.Tag | Node.Type | Group | readonly Node.Query[] | {and: readonly Node.Query[]}
 
+  /// @internal
+  export function queryToString(q: Query): string {
+    if ("and" in q) return `and(${q.and.map(queryToString)})`
+    if (Array.isArray(q)) return `or(q.map(queryToString))`
+    return String(q)
+  }
+
   /// Roles are used to add some semantic information to node types.
   /// You can define your own, and use the `hasRole` method to check
   /// whether a given node has the role attached.

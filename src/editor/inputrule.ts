@@ -91,6 +91,9 @@ export class InputRule {
       lookahead: empty ? /^$/ : undefined
     })
   }
+
+  /// @internal
+  toString() { return `InputRule(${this.expr})` }
 }
 
 export namespace InputRule {

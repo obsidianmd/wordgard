@@ -189,4 +189,7 @@ export class Correction {
     }
     return changed.length ? ChangeSet.create(doc, changed) : null
   }
+
+  /// @internal
+  toString() { return `Correction(${Node.queryToString(this.query)})` }
 }

@@ -66,6 +66,9 @@ export namespace Menu {
         let src = Menu.Item.source.of(this as any)
         this.extension = this.parent ? [src, this.parent] : src
       }
+
+      /// @internal
+      toString() { return "Menu.Item" }
     }
 
     /// The facet used to add menu items to a configuration. Used by
@@ -230,6 +233,9 @@ export namespace Menu {
     template(...content: (Template | Item | "...")[]) {
       return Template.new(this, content.length ? content : ["..."])
     }
+
+    /// @internal
+    toString() { return "Menu.Group" }
   }
 
   export namespace Group {
