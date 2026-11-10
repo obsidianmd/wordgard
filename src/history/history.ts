@@ -6,6 +6,7 @@ import {phrases} from "wordgard/phrases"
 const enum BranchName { Done, Undone }
 
 const fromHistory = Transaction.Effect.define<{side: BranchName, startDoc: Plot.Doc, rest: Branch | null}>({
+  name: "fromHistory",
   map(value, change) {
     return {
       side: value.side,
@@ -133,7 +134,7 @@ export namespace history {
   /// `"before"`, it'll prevent merging with previous transactions. With
   /// `"after"`, subsequent transactions won't be combined with this
   /// one. With `true`, the transaction is isolated on both sides.
-  export const isolate = Transaction.Annotation.define<"before" | "after" | true>()
+  export const isolate = Transaction.Annotation.define<"before" | "after" | true>("historyIsolate")
 
   /// This facet provides a way to register functions that, given a
   /// transaction, provide a set of effects that the history should

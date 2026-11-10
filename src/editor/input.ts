@@ -686,7 +686,7 @@ function copy(wg: Wordgard, event: ClipboardEvent) {
   return true
 }
 
-export const isFocusChange = Transaction.Annotation.define<boolean>()
+export const isFocusChange = Transaction.Annotation.define<boolean>("focusChange")
 
 function updateForFocusChange(wg: Wordgard) {
   setTimeout(() => {

@@ -799,7 +799,7 @@ export class Wordgard {
   /// describe effects that are visually obvious but may not be
   /// noticed by screen reader users (such as moving to the next
   /// search match).
-  static announce = Transaction.Effect.define<string>()
+  static announce = Transaction.Effect.define<string>({name: "announce"})
 
   /// @internal for testing
   static DocTile = DocTile

@@ -55,6 +55,7 @@ const resizeTheme = Wordgard.theme({
 })
 
 const setResizing = Transaction.Effect.define<{target: number, resizing: number}>({
+  name: "setImageResize",
   map: (value, mapping) => {
     let newPos = mapping.mapPos(value.target, 1, "after")
     return newPos == null ? undefined : {target: newPos, resizing: value.resizing}
@@ -69,7 +70,7 @@ const handleElt = Elt.mk("svg:svg", {class: "wg-resize-handle", viewBox: "0 0 20
 const resizeWrapper = Decoration.Point.wrapper(Elt.mk("span", {class: "wg-resize-hover"}, [handleElt, 0]), {target: "img"})
 
 const resizeState = GardState.Field.define<{target: number, resizing: number, deco: Decoration.Point.Set}>({
-  name: "imageResizeState",
+  name: "imageResize",
   create: () => ({target: -1, resizing: -1, deco: Decoration.Point.none}),
   update: (value, tr) => {
     for (let e of tr.effects) {

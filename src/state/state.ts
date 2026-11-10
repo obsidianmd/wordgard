@@ -2,6 +2,7 @@ import {Schema, Plot, Node, Pos, parse, SchemaError, ValidationError} from "word
 import {SelectionType, GardSelection, wordAt, cursorAtStart} from "./selection"
 import {Transaction, resolveTransaction, asArray} from "./transaction"
 import {TextblockMap} from "./textblock"
+import {debugString} from "./debug"
 
 let nextID = 0
 
@@ -289,10 +290,10 @@ export class GardState {
   /// GardState.appendConfig appended}, but does not reset the
   /// content of {@link GardState.Compartment.reconfigure
   /// reconfigured} compartments.
-  static reconfigure = Transaction.Effect.define<GardState.Extension>()
+  static reconfigure = Transaction.Effect.define<GardState.Extension>({name: "reconfigure"})
 
   /// Append extensions to the top-level configuration of the editor.
-  static appendConfig = Transaction.Effect.define<GardState.Extension>()
+  static appendConfig = Transaction.Effect.define<GardState.Extension>({name: "appendConfig"})
 }
 
 export namespace GardState {
@@ -922,7 +923,10 @@ export namespace GardState {
     }
 
     /// @internal
-    static reconfigureCompartment = Transaction.Effect.define<{compartment: GardState.Compartment, extension: GardState.Extension}>()
+    static reconfigureCompartment = Transaction.Effect.define<{
+      compartment: GardState.Compartment,
+      extension: GardState.Extension
+    }>({name: "reconfigureCompartment"})
 
     /// @internal
     toString() { return "Compartment" + (this.name ? ":" + this.name : "") }
@@ -1077,15 +1081,7 @@ class FacetProvider<Input> {
     readonly value: Input | null
   ) {}
 
-  toString() { return `${this.facet}(${this.flags & ProviderFlag.Static ? debugStr(this.value) : "dynamic"})` }
-}
-
-function debugStr(value: any): any {
-  let tp = typeof value
-  if (tp == "string") return JSON.stringify(value)
-  if (tp == "function") return /.*?\)/.exec(value.toString())?.[0] || value
-  if (Array.isArray(value)) return `[${value.map(debugStr)}]`
-  return value
+  toString() { return `${this.facet}(${this.flags & ProviderFlag.Static ? debugString(this.value) : "dynamic"})` }
 }
 
 function compareArray<T>(a: readonly T[], b: readonly T[], compare: (a: T, b: T) => boolean) {

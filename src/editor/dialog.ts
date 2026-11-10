@@ -208,8 +208,8 @@ class OpenDialog {
   ) {}
 }
 
-const openDialog = Transaction.Effect.define<OpenDialog>()
-const closeDialog = Transaction.Effect.define<OpenDialog>()
+const openDialog = Transaction.Effect.define<OpenDialog>({name: "openDialog"})
+const closeDialog = Transaction.Effect.define<OpenDialog>({name: "closeDialog"})
 
 const dialogs = GardState.Field.define<readonly OpenDialog[]>({
   name: "dialogs",

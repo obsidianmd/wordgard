@@ -54,6 +54,7 @@ const collabConfig = GardState.Facet.define<collab.Config & {generatedID: string
 })
 
 const collabReceive = Transaction.Effect.define<CollabState>({
+  name: "collabReceive",
   map(state, changes) {
     // This is used to make sure changes added to collab receive
     // transactions by extenders still get stored as unconfirmed.

@@ -426,7 +426,7 @@ export interface Tooltip {
   clip?: boolean
 }
 
-const closeHoverTooltipEffect = Transaction.Effect.define<null>()
+const closeHoverTooltipEffect = Transaction.Effect.define<null>({name: "closeHover"})
 
 export namespace Tooltip {
   /// Creates an extension that configures tooltip behavior.
