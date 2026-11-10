@@ -23,3 +23,7 @@ export {CellSelection} from "./cellselection"
 export {addColumn, addRow, deleteColumn, deleteRow, toggleHeaderCell, mergeCells, splitCell} from "./tablecommands"
 
 export {handleTablePaste} from "./tablepaste"
+
+//- ### Map
+
+export {TableMap} from "./tablemap"

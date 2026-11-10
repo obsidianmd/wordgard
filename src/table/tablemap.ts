@@ -1,23 +1,5 @@
-// Because working with row and column-spanning cells is not quite
-// trivial, this code builds up a descriptive structure for a given
-// table node. The structures are cached with the (persistent) table
-// nodes as key, so that they only have to be recomputed when the
-// content of the table changes.
-//
-// This does mean that they have to store table-relative, not
-// document-relative positions. So code that uses them will typically
-// compute the start position of the table and offset positions passed
-// to or gotten from this structure by that amount.
-
 import {Plot} from "wordgard/doc"
 import {Table, ColSpan, RowSpan} from "wordgard/types"
-
-export class Rect {
-  constructor(readonly startCol: number,
-              readonly startRow: number,
-              readonly endCol: number, // Not inclusive
-              readonly endRow: number) {}
-}
 
 type Problem =
   | {type: "collision", pos: number}
@@ -37,16 +19,31 @@ class MapData {
 
 let cache = new WeakMap<Plot, MapData>()
 
-/// A table map describes the structore of a given table. To avoid
-/// recomputing them all the time, they are cached per table node. To
-/// be able to do that, positions saved in the map are relative to the
-/// start of the table, rather than the start of the document.
+/// A table map describes the structore of a given table.
 export class TableMap {
-  constructor(readonly start: number, readonly data: MapData) {}
+  /// Get a table map for the given table node. Will reuse known
+  /// structure of unchanged tables across document changes.
+  static get(table: Plot, start: number): TableMap {
+    let data = cache.get(table)
+    if (!data) cache.set(table, data = computeMap(table))
+    return new TableMap(start, data)
+  }
 
+  private constructor(
+    /// The start position of the table's content.
+    readonly start: number,
+    /// @internal
+    readonly data: MapData
+  ) {}
+
+
+  /// The number of columns in this table.
   get width() { return this.data.width }
+  /// The number of rows in the table.
   get height() { return this.data.height }
+  /// The table plot.
   get table() { return this.data.table }
+  /// The document position before the table.
   get tablePos() { return this.start - 1 }
 
   /// Find the dimensions of the cell at the given position.
@@ -57,11 +54,12 @@ export class TableMap {
       let endCol = startCol + 1, endRow = startRow + 1
       for (let j = 1; endCol < width && map[i + j] == localPos; j++) endCol++
       for (let j = 1; endRow < height && map[i + (width * j)] == localPos; j++) endRow++
-      return new Rect(startCol, startRow, endCol, endRow)
+      return new TableMap.Rect(startCol, startRow, endCol, endRow)
     }
     throw new RangeError(`No cell with offset ${pos} found`)
   }
 
+  /// @internal
   nearestCell(pos: number, bias: -1 | 1) {
     let localPos = pos - this.start, after = -1, before = -1
     let {map, cellEnds} = this.data
@@ -80,6 +78,7 @@ export class TableMap {
     return {from: after + this.start, to: cellEnds.get(after)! + this.start}
   }
 
+  /// Find the end position of the given cell.
   cellEnd(pos: number) {
     let end = this.data.cellEnds.get(pos - this.start)
     if (end == null) throw new Error(`No cell with offset ${pos} found`)
@@ -90,20 +89,20 @@ export class TableMap {
   rectBetween(a: number, b: number) {
     let {startCol: startColA, endCol: endColA, startRow: startRowA, endRow: endRowA} = this.cellRect(a)
     let {startCol: startColB, endCol: endColB, startRow: startRowB, endRow: endRowB} = this.cellRect(b)
-    return new Rect(Math.min(startColA, startColB), Math.min(startRowA, startRowB),
-                    Math.max(endColA, endColB), Math.max(endRowA, endRowB))
+    return new TableMap.Rect(Math.min(startColA, startColB), Math.min(startRowA, startRowB),
+                             Math.max(endColA, endColB), Math.max(endRowA, endRowB))
   }
 
   /// Return the position of all cells that have their top start
   /// corner in the given rectangle.
-  cellsInRect(rect: Rect) {
+  cellsInRect(rect: TableMap.Rect) {
     let result: number[] = [], {map, width} = this.data
     for (let row = rect.startRow; row < rect.endRow; row++) {
       for (let col = rect.startCol; col < rect.endCol; col++) {
         let index = row * width + col, pos = map[index]
         if (pos > 0 && result.indexOf(pos + this.start) < 0 &&
-            (col != rect.startCol || !col || map[index - 1] != pos) &&
-            (row != rect.startRow || !row || map[index - width] != pos))
+          (col != rect.startCol || !col || map[index - 1] != pos) &&
+          (row != rect.startRow || !row || map[index - width] != pos))
           result.push(pos + this.start)
       }
     }
@@ -143,28 +142,40 @@ export class TableMap {
     return found
   }
 
-  cellsOverlapRectangle(rect: Rect) {
+  /// Check whether any cells stick out of the given rectangle.
+  /// @internal
+  cellsOverlapRectangle(rect: TableMap.Rect) {
     let {width, height, map} = this.data
     let indexTop = rect.startRow * width + rect.startCol, indexBefore = indexTop
     let indexBottom = (rect.endRow - 1) * width + rect.endCol, indexAfter = indexTop + (rect.endCol - rect.startCol - 1)
     for (let i = rect.startRow; i < rect.endRow; i++) {
       if (rect.startCol > 0 && sameCell(map[indexBefore], map[indexBefore - 1]) ||
-          rect.endCol < width && sameCell(map[indexAfter], map[indexAfter + 1])) return true
+        rect.endCol < width && sameCell(map[indexAfter], map[indexAfter + 1])) return true
       indexBefore += width; indexAfter += width
     }
     for (let i = rect.startCol; i < rect.endCol; i++) {
       if (rect.startRow > 0 && sameCell(map[indexTop], map[indexTop - width]) ||
-          rect.endRow < height && sameCell(map[indexBottom], map[indexBottom + width])) return true
+        rect.endRow < height && sameCell(map[indexBottom], map[indexBottom + width])) return true
       indexTop++; indexBottom++
     }
     return false
   }
+}
 
-  /// Find the table map for the given table node.
-  static get(table: Plot, start: number): TableMap {
-    let data = cache.get(table)
-    if (!data) cache.set(table, data = computeMap(table))
-    return new TableMap(start, data)
+export namespace TableMap {
+  /// Data type used for a rectangular area in a table.
+  export class Rect {
+    constructor(
+      /// Starting column of the rectangle.
+      readonly startCol: number,
+      /// Starting row.
+      readonly startRow: number,
+      /// The end column. Non-inclusive. Always higher than
+      /// `startCol`.
+      readonly endCol: number,
+      /// The end row. Non-inclusive. Always higher than `startRow`.
+      readonly endRow: number
+    ) {}
   }
 }
 
