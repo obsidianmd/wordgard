@@ -313,7 +313,8 @@ export class Wordgard {
       for (let p of this.plugins) p.mustUpdate = update
     }
     for (let i = 0; i < this.plugins.length; i++) this.plugins[i].update(this)
-    if (configChange) this.inputState.ensureHandlers(update.state)
+    if (update.state.facet(eventHandler) != update.startState.facet(eventHandler))
+      this.inputState.ensureHandlers(update.state)
   }
 
   private updateAttrs() {
