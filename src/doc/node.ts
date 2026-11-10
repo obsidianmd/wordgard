@@ -256,35 +256,42 @@ export namespace Node {
     private constructor(
       /// Groups may have a parent group. Membership of a group
       /// implies membership of its parent groups.
-      readonly parent: Group | undefined
+      readonly parent: Group | undefined,
+      /// This group's debug name.
+      readonly name: string | null
     ) {}
 
     /// Define a custom node group.
-    static define(parent?: Group) { return new Group(parent) }
+    static define(spec: {parent?: Group, name?: string} = {}) {
+      return new Group(spec.parent, spec.name || null)
+    }
 
     /// A group that contains every node type.
-    static All = Group.define()
+    static All = Group.define({name: "All"})
     /// All inline nodes are automatically assigned to this group.
-    static Inline = Group.define()
+    static Inline = Group.define({name: "Inline"})
     /// Block elements automatically get assigned to this group.
-    static Block = Group.define()
+    static Block = Group.define({name: "Block"})
     /// The group of all leaf nodes.
-    static Leaf = Group.define()
+    static Leaf = Group.define({name: "Leaf"})
     /// The group of all non-leaf nodes.
-    static Plot = Group.define()
+    static Plot = Group.define({name: "Plot"})
     /// Block plots with inline content are tagged as textblocks.
-    static Textblock = Group.define()
+    static Textblock = Group.define({name: "Textblock"})
     /// A group used for generic block content, such as paragraphs and
     /// lists. The basic schema uses this as the content type for the
     /// top level document, blockquotes, and list items.
-    static Content = Group.define()
+    static Content = Group.define({name: "Content"})
     /// Group for the cell nodes in tables.
-    static TableCell = Group.define()
+    static TableCell = Group.define({name: "TableCell"})
     /// Generic list item group.
-    static ListItem = Group.define()
+    static ListItem = Group.define({name: "ListItem"})
 
     /// @internal
     static builtin = [Group.All, Group.Inline, Group.Block, Group.Leaf, Group.Plot, Group.Textblock]
+
+    /// @internal
+    toString() { return "Node.Group" + (this.name ? ":" + this.name : "") }
   }
 
   /// Describes a set of node types. Can be either a single tag or
@@ -308,28 +315,34 @@ export namespace Node {
   /// You can define your own, and use the `hasRole` method to check
   /// whether a given node has the role attached.
   export class Role {
-    private constructor() {}
+    private constructor(
+      /// This role's name.
+      readonly name: string | null
+    ) {}
 
     /// @internal
     declare private tag: "Node.Role"
 
     /// Define a new role.
-    static define() { return new Role }
+    static define(name?: string) { return new Role(name || null) }
 
     /// This role indicates that a plot contains code, and makes some
     /// commands behave differently inside such a plot.
-    static Code = Role.define()
+    static Code = Role.define("Code")
 
     /// Identifies a plot as a list container. This makes some
     /// commands treat the plot specially.
-    static List = Role.define()
+    static List = Role.define("List")
 
     /// A single leaf type in a schema may have the `LineBreak` role,
     /// which identifies it as the canonical node that represents a
     /// line break. Nodes marked as line breaks will be parsed from
     /// and serialized to newline characters inside {@link
     /// Plot.Spec.preserveWhitespace whitespace-preserving} nodes.
-    static LineBreak = Role.define()
+    static LineBreak = Role.define("LineBreak")
+
+    /// @internal
+    toString() { return "Node.Role" + (this.name ? ":" + this.name : "") }
   }
 }
 
