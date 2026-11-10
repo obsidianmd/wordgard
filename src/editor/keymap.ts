@@ -339,7 +339,7 @@ type Keymap = NormalizedBinding[]
 const keymapCache = new WeakMap<readonly KeyBinding[], Keymap>()
 
 function getKeymap(state: GardState) {
-  let bindings = state.field(KeyBinding.keymap)
+  let bindings = state.field(KeyBinding.keymap, false)
   let found = keymapCache.get(bindings)
   if (!found)
     keymapCache.set(bindings, found = buildKeymap(bindings, currentPlatform),)
