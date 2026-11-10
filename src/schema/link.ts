@@ -158,11 +158,9 @@ export namespace link {
   /// Registers a paste handler that, when a URI is pasted over a
   /// selection, will add a link to the selection instead of replacing
   /// it with the pasted text.
-  export const pasteOver: GardState.Extension = Wordgard.pasteHandler.of((wg, event) => {
-    let {selection} = wg.state, data = event.dataTransfer
-    if (!data || selection.empty) return false
-    let text = data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list")
-    if (!text || !/^(https?|mailto|xmpp|data):[^ ]+$/.test(text)) return false
+  export const pasteOver: GardState.Extension = Wordgard.pasteHandler.of((wg, event, slice, html, text) => {
+    let {selection} = wg.state
+    if (selection.empty || !/^(https?|mailto|xmpp|data):[^ ]+$/.test(text)) return false
     let link = Link.of(text)
     let changes = ChangeSet.create(wg.state.doc, {from: selection.from, to: selection.to, add: link})
     if (changes.empty) return false

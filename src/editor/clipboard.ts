@@ -76,9 +76,7 @@ function isOpen(elt: Element) {
   return (elt.getAttribute("wg-open") || null) as "start" | "end" | "start end" | null
 }
 
-export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean): Slice | null {
-  let html = data.getData("text/html")
-  let text = data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list").replace(/\r?\n/g, " ")
+export function readClipboard(state: GardState, html: string, text: string, targetContext: Pos, plain: boolean): Slice | null {
   let slice: Slice
   if (text && (targetContext.parent.node.type.hasRole(Node.Role.Code) || !html || plain)) {
     for (let filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)

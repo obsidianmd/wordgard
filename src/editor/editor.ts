@@ -12,7 +12,7 @@ import {clipboardOutputFilter, clipboardOutputHTMLFilter, clipboardOutputTextFil
 import {theme, colorScheme, buildTheme, styleID, baseLightID, baseDarkID, lightDarkIDs, baseStyles} from "./theme"
 import {DOMObserver} from "./domobserver"
 import {InputState, isFocusChange, mouseSelectionStyle,
-        dragBehavior, pasteHandler, dropHandler, eventHandler, eventObserver} from "./input"
+        dragBehavior, pasteHandler, dropHandler, eventHandler, eventObserver, doPaste} from "./input"
 import {ViewState, scrollIntoView, ScrollTarget} from "./viewstate"
 import browser from "./browser"
 import {DOMNode, getRoot, clearScratchRange, scrollRectIntoView} from "./dom"
@@ -574,6 +574,11 @@ export class Wordgard {
   /// Facet that allows you to register handlers to override paste
   /// behavior.
   static pasteHandler = pasteHandler
+
+  /// Perform a paste with the given content. This will run {@link
+  /// Wordgard.pasteHandler paste handlers} and, if none handles the
+  /// paste, fall back to the default handling.
+  paste(html: string, text?: string) { doPaste(this, html, text || "", null, null) }
 
   /// Facet for custom drop handlers. When the drop is done inside the
   /// editor and should move an existing range, the `move` parameter

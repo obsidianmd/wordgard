@@ -275,20 +275,11 @@ export class InputState {
         isSel = !!domSel && isEquivalentPosition(r.startContainer, r.startOffset, domSel.startContainer, domSel.startOffset) &&
           isEquivalentPosition(r.endContainer, r.endOffset, domSel.endContainer, domSel.endOffset)
       }
-      let {from, to} = isSel ? wg.state.selection : range!
-      let slice = readClipboard(wg.state, event.dataTransfer!, wg.state.doc.resolve(from), wg.inputState.shiftKey)
-      if (isSel && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty)))
-        return
-      if (slice) {
-        wg.dispatch({
-          changes: {correct: {from, to, insert: slice, fit: true}, local: true},
-          selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
-          userEvent: "input.paste",
-          scrollIntoView: isSel
-        })
-      }
+      let transfer = event.dataTransfer!
+      doPaste(wg, getHTML(transfer), getText(transfer), isSel ? null : range!, event)
     } else if ((type == "insertReplacementText" || type == "insertFromYank")) {
-      let read = readClipboard(wg.state, event.dataTransfer!, wg.state.sel.head, true)
+      let transfer = event.dataTransfer!
+      let read = readClipboard(wg.state, getHTML(transfer), getText(transfer), wg.state.sel.head, true)
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       let sel = wg.state.selection, touchesSel = from <= sel.to && to >= sel.from
       if (read) wg.dispatch({
@@ -427,6 +418,14 @@ export class InputState {
   }
 }
 
+function getHTML(data: DataTransfer) {
+  return data.getData("text/html")
+}
+
+function getText(data: DataTransfer) {
+  return data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list").replace(/\r?\n/g, " ")
+}
+
 function isSingleChar(doc: Plot.Doc, from: number, to: number) {
   if (to > from + 10) return false
   let after = doc.resolve(from).nodeAfter
@@ -463,6 +462,25 @@ function computeHandlers(state: GardState) {
   for (let type in baseHandlers) record(type).handlers.push((baseHandlers as any)[type])
   for (let type in baseObservers) record(type).observers.push((baseObservers as any)[type])
   return result
+}
+
+export function doPaste(
+  wg: Wordgard, html: string, text: string,
+  targetRange: {from: number, to: number} | null,
+  event: InputEvent | null
+) {
+  let {from, to} = targetRange || wg.state.selection.replacementRange
+  let slice = readClipboard(wg.state, html, text, wg.state.doc.resolve(from), wg.inputState.shiftKey)
+  if (!targetRange && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty, text, html)))
+    return
+  if (slice) {
+    wg.dispatch({
+      changes: {correct: {from, to, insert: slice, fit: true}, local: true},
+      selection: targetRange ? undefined : (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
+      userEvent: "input.paste",
+      scrollIntoView: !targetRange
+    })
+  }
 }
 
 // Key codes for modifier keys
@@ -672,8 +690,8 @@ export const dropHandler = GardState.Facet.define<(
 
 export const pasteHandler = GardState.Facet.define<(
   wg: Wordgard,
-  event: InputEvent,
-  slice: Slice
+  event: InputEvent | null,
+  slice: Slice, html: string, text: string
 ) => boolean>({name: "pasteHandler"})
 
 function copy(wg: Wordgard, event: ClipboardEvent) {
@@ -836,8 +854,9 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
   cut: copy,
 
   drop(wg, event) {
-    if (!event.dataTransfer || wg.state.readOnly) return true
-    let slice = readClipboard(wg.state, event.dataTransfer, wg.state.sel.head, false)
+    let data = event.dataTransfer
+    if (!data || wg.state.readOnly) return true
+    let slice = readClipboard(wg.state, getHTML(data), getText(data), wg.state.sel.head, false)
     if (!slice) return false
 
     let dropPos = wg.posAtCoords({x: event.clientX, y: event.clientY}).pos
