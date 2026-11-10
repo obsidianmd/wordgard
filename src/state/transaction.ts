@@ -23,7 +23,7 @@ export class Transaction {
     readonly selection: GardSelection | undefined,
     /// The effects contained in this transaction.
     readonly effects: readonly Transaction.Effect<any>[],
-    /// @internal
+    /// The annotations on this transaction.
     readonly annotations: readonly Transaction.Annotation<any>[],
     /// Whether the selection should be scrolled into view after this
     /// transaction is dispatched.
