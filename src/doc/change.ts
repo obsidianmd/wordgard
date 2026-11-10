@@ -64,12 +64,9 @@ class Builder implements Pos.Walker, SliceWalker {
 
 type Modification = {add: Mark} | {remove: Mark}
 
-function isAdd(m: Modification): m is {add: Mark} { return !!(m as any).add }
-function isRemove(m: Modification): m is {remove: Mark} { return !!(m as any).remove }
-
 function applyModifications(modifications: readonly Modification[], marks: Mark.Set, type: Node.Type) {
   for (const m of modifications) {
-    if (isAdd(m)) {
+    if ("add" in m) {
       marks = m.add.addToSet(marks)
     } else {
       marks = m.remove.removeFromSet(marks)
@@ -79,7 +76,7 @@ function applyModifications(modifications: readonly Modification[], marks: Mark.
 }
 
 function modificationToJSON(m: Modification): ModificationJSON {
-  return isAdd(m) ? {add: m.add.name, value: m.add.value} : {remove: m.remove.name, value: m.remove.value}
+  return "add" in m ? {add: m.add.name, value: m.add.value} : {remove: m.remove.name, value: m.remove.value}
 }
 
 function modificationFromJSON(schema: Schema, json: ModificationJSON): Modification {
@@ -101,7 +98,7 @@ function compareModifications(a: readonly Modification[], b: readonly Modificati
 }
 
 function compareModification(a: Modification, b: Modification) {
-  return isAdd(a) ? isAdd(b) && a.add.eq(b.add) : isRemove(b) && a.remove.eq(b.remove)
+  return "add" in a ? "add" in b && a.add.eq(b.add) : "remove" in b && a.remove.eq(b.remove)
 }
 
 function isNatNum(value: any): value is number {
@@ -518,7 +515,7 @@ export class ChangeSet {
         text += data
       } else if (data) {
         text += `[${(data as readonly Modification[]).map(mod => {
-          return `${isAdd(mod) ? "+" + mod.add : "-" + mod.remove}`
+          return `${"add" in mod ? "+" + mod.add : "-" + mod.remove}`
         })}]`
       }
       if (text) result += `${result ? "," : ""}${pos}${len ? `-${pos + len}` : ""}${text}`
@@ -884,16 +881,16 @@ function filterMods(mods: null | readonly Modification[], against: null | readon
 }
 
 function modCancels(mod: Modification, other: Modification) {
-  if (isAdd(other)) {
-    return isAdd(mod) ? mod.add.type == other.add.type && !mod.add.type.set : mod.remove.eq(other.add)
+  if ("add" in other) {
+    return "add" in mod ? mod.add.type == other.add.type && !mod.add.type.set : mod.remove.eq(other.add)
   } else {
-    return isAdd(mod) && mod.add.eq(isAdd(other) ? other.add : other.remove)
+    return "add" in mod && mod.add.eq(other.remove)
   }
 }
 
 function invertMods(mods: readonly Modification[], target: Node.Tag): readonly Modification[] {
   return mods.map(mod => {
-    if (isRemove(mod)) return {add: mod.remove}
+    if ("remove" in mod) return {add: mod.remove}
     if (!mod.add.type.set) {
       let existed = mod.add.type.isInSet(target.marks)
       if (existed) return {add: existed}
