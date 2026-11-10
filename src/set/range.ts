@@ -147,13 +147,13 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
     let replI = 0, posA = 0, posB = 0
     let build = new SetBuilder<T>()
     for (let i = 0; i < sections.length;) {
-      let len = sections[i++], ins = sections[i++]
+      let len = sections[i++], ins = sections[i++], endA = posA + len
       if (ins < 0) {
         while (i < sections.length && sections[i + 1] < 0) {
           len += sections[i]
           i += 2
         }
-        let upto = i == sections.length ? 1e9 : posA + len, off = posB - posA
+        let upto = i == sections.length ? 1e9 : endA, off = posB - posA
         // Unchanged range. Copy over ranges and chunks entirely inside.
         while (cursor.cur) {
           let chunk = cursor.cur
@@ -178,11 +178,11 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
           let repl = replace[replI++]
           if (repl.add) build.add(repl.add)
         }
-        if (len) cursor.goto(posA + len - 1)
-        copyMappedUpto(cursor, posA + len, map, build, replace, replStartI)
+        if (len && cursor.to < endA) cursor.goto(endA - 1)
+        copyMappedUpto(cursor, endA, map, build, replace, replStartI)
         posB = endB
       }
-      posA += len
+      posA = endA
     }
     return build.finish(this.next && this.next.mapInner(sections, map, replace))
   }

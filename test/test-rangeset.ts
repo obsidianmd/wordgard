@@ -91,6 +91,18 @@ describe("RangeSet", () => {
     ist(str(RangeSet.create([[V.a, 2, 4]]).map(ChangeSet.new([0, 1, 4, -1], []))), "a@3-5")
   })
 
+  it("can map through changes that cut in the middle of a range", () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([2, -1, 2, 2, 2, -1], []))), "a@0-6")
+  })
+
+  it("can map through changes that cut the end of a range", () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([4, -1, 2, 2], []))), "a@0-6")
+  })
+
+  it("can map through changes that cut the start of a range", () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([2, 2, 4, -1], []))), "a@0-6")
+  })
+
   it("can compare sets", () => {
     let diff: number[] = []
     RangeSet.create([[V.a, 0, 3], [V.b, 4, 7]]).compareRange(
