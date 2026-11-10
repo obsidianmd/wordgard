@@ -129,6 +129,7 @@ export namespace Widget {
     render() {
       let img = document.createElement("img")
       img.className = "wg-buffer"
+      img.alt = ""
       return img
     },
     editable: true
@@ -139,6 +140,7 @@ export namespace Widget {
     render() {
       let img = document.createElement("img")
       img.className = "wg-blockBuffer"
+      img.alt = ""
       return img
     },
     editable: true
