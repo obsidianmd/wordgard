@@ -74,7 +74,7 @@ export namespace Menu {
     /// The facet used to add menu items to a configuration. Used by
     /// the items' extensions to register them, and by menu
     /// implementations to find available items.
-    export const source = GardState.Facet.define<Item>()
+    export const source = GardState.Facet.define<Item>({name: "menuItem"})
 
     /// A resolved menu consists of buttons, custom controls,
     /// submenus, and spacers, which are represented by the string

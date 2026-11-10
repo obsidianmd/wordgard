@@ -63,6 +63,7 @@ function computeLinkTooltip(state: GardState): Tooltip | null {
 const closeLinkTooltip = Transaction.Effect.define<null>()
   
 const linkTooltipField = GardState.Field.define<Tooltip | null>({
+  name: "linkTooltip",
   create: computeLinkTooltip,
   update(value, tr) {
     if (tr.effects.some(e => e.is(closeLinkTooltip))) return null

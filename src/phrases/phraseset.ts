@@ -4,6 +4,7 @@ const phraseOverride = GardState.Facet.define<
   {set: PhraseSet<any>, phrases: Record<string, string>},
   Map<PhraseSet<any>, Record<string, string>>
 >({
+  name: "phraseOverride",
   combine(records) {
     let map = new Map<PhraseSet<any>, Record<string, string>>()
     for (let i = records.length - 1; i >= 0; i--) {

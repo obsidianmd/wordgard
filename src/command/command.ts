@@ -5,6 +5,7 @@ const commandHandler = GardState.Facet.define<
   [Command<any>, (wg: Wordgard, param: any) => boolean],
   Map<Command<any>, readonly ((wg: Wordgard, param: any) => boolean)[]>
 >({
+  name: "commandHandler",
   combine(handlers) {
     let map = new Map<Command<any>, readonly ((wg: Wordgard, param: any) => boolean)[]>()
     for (let [cmd, handler] of handlers) {

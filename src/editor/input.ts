@@ -20,6 +20,7 @@ export const eventHandler = GardState.Facet.define<
   {event: string, handler: (event: Event, wg: Wordgard) => boolean | void},
   Record<string, ((event: Event, wg: Wordgard) => boolean | void)[]>
 >({
+  name: "eventHandler",
   combine: handlers => {
     let result: Record<string, ((event: Event, wg: Wordgard) => boolean | void)[]> = Object.create(null)
     for (let {event, handler} of handlers)
@@ -32,6 +33,7 @@ export const eventObserver = GardState.Facet.define<
   {event: string, observer: (event: Event, wg: Wordgard) => void},
   Record<string, ((event: Event, wg: Wordgard) => void)[]>
 >({
+  name: "eventObserver",
   combine: observers => {
     let result: Record<string, ((event: Event, wg: Wordgard) => void)[]> = Object.create(null)
     for (let {event, observer} of observers)
@@ -462,7 +464,7 @@ export const modifierCodes = [16, 17, 18, 20, 91, 92, 224, 225]
 
 const dragScrollMargin = 6
 
-export const mouseSelectionStyle = GardState.Facet.define<MakeSelectionStyle>()
+export const mouseSelectionStyle = GardState.Facet.define<MakeSelectionStyle>({name: "mouseSelectionStyle"})
 
 export type MakeSelectionStyle = (wg: Wordgard, event: MouseEvent) => Wordgard.MouseSelectionStyle | null
 
@@ -580,7 +582,7 @@ class MouseSelection {
   }
 }
 
-export const dragBehavior = GardState.Facet.define<(event: MouseEvent) => boolean>()
+export const dragBehavior = GardState.Facet.define<(event: MouseEvent) => boolean>({name: "dragBehavior"})
 
 function dragMovesSelection(wg: Wordgard, event: MouseEvent) {
   let facet = wg.state.facet(dragBehavior)
@@ -660,13 +662,13 @@ export const dropHandler = GardState.Facet.define<(
   pos: number,
   move: {from: number, to: number} | null,
   slice: Slice
-) => boolean>()
+) => boolean>({name: "dropHandler"})
 
 export const pasteHandler = GardState.Facet.define<(
   wg: Wordgard,
   event: InputEvent,
   slice: Slice
-) => boolean>()
+) => boolean>({name: "pasteHandler"})
 
 function copy(wg: Wordgard, event: ClipboardEvent) {
   let {state} = wg

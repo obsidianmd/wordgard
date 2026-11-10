@@ -119,6 +119,7 @@ export namespace KeyBinding {
   /// are called. When a handler has returned `true` for a given key,
   /// no further handlers are called.
   export const source = GardState.Facet.define<KeyBinding>({
+    name: "keyBinding",
     enables: keymap
   })
 
@@ -126,6 +127,7 @@ export namespace KeyBinding {
   /// is automatically active. You can configure this to false if you
   /// want to completely replace it.
   export const useDefaultKeymap = GardState.Facet.define<boolean, boolean>({
+    name: "useDefaultKeymap",
     combine: input => input.length ? input[0] : true
   })
 

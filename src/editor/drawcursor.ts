@@ -8,6 +8,7 @@ import {textRange} from "./dom"
 import {renderMarks} from "./decoration"
 
 export const cursorBlinkRate = GardState.Facet.define<number, number>({
+  name: "cursorBlinkRate",
   combine: inputs => inputs.length ? Math.min(...inputs) : 1200
 })
 

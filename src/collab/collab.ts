@@ -38,6 +38,7 @@ class CollabState {
 }
 
 const collabConfig = GardState.Facet.define<collab.Config & {generatedID: string}, Required<collab.Config>>({
+  name: "collabConfig",
   combine(configs) {
     let combined = GardState.Facet.combineConfig(configs, {
       startVersion: 0,
@@ -62,6 +63,8 @@ const collabReceive = Transaction.Effect.define<CollabState>({
 })
 
 const collabField = GardState.Field.define({
+  name: "collab",
+
   create(state) {
     return new CollabState(state.facet(collabConfig).startVersion, state.doc, null, null)
   },

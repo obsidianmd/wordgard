@@ -29,6 +29,7 @@ interface HistoryConfig {
 }
 
 const historyConfig = GardState.Facet.define<HistoryConfig, Required<HistoryConfig>>({
+  name: "historyConfig",
   combine(configs) {
     return GardState.Facet.combineConfig(configs, {
       minDepth: 100,
@@ -43,6 +44,8 @@ const historyConfig = GardState.Facet.define<HistoryConfig, Required<HistoryConf
 })
 
 const historyField_ = GardState.Field.define({
+  name: "history",
+
   create() {
     return new HistoryState(null, null)
   },
@@ -137,7 +140,9 @@ export namespace history {
   /// store when inverting the transaction. This can be used to
   /// integrate specific effects in the history, so that they can be
   /// undone (and redone again).
-  export const invertedEffects = GardState.Facet.define<(tr: Transaction) => readonly Transaction.Effect<any>[]>()
+  export const invertedEffects = GardState.Facet.define<(tr: Transaction) => readonly Transaction.Effect<any>[]>({
+    name: "invertedEffects"
+  })
 
   export type EventJSON = {
     changes: ChangeSet.JSON,

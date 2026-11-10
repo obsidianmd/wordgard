@@ -131,6 +131,7 @@ export const deleteToLineEnd: Command<"forward" | "backward"> = (wg, dir) => {
 const addToKillBuffer = Transaction.Effect.define<readonly Token[]>()
 
 const killBuffer = GardState.Field.define<{content: readonly Token[], active: boolean}>({
+  name: "killBuffer",
   create() { return {content: [], active: false} },
   update(value, tr) {
     let add = tr.effects.find(e => e.is(addToKillBuffer))

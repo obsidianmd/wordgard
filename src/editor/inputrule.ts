@@ -3,7 +3,7 @@ import {history} from "wordgard/history"
 import {Leaf, Plot, Node, Pos, ChangeSet} from "wordgard/doc"
 import {findWrappable, wrapBlockRange, autoJoinBlocks} from "wordgard/command"
 
-const inputRule = GardState.Facet.define<InputRule>()
+const inputRule = GardState.Facet.define<InputRule>({name: "inputRule"})
 
 const appender = Transaction.appender.of(applyInputRules)
 

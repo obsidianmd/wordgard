@@ -935,6 +935,7 @@ export namespace GardState {
   /// schema provided via the {@link GardState.Spec.doc} option, or
   /// raise an error is none is provided.)
   export const schemaElement = GardState.Facet.define<Schema.Element | readonly Schema.Element[], readonly Schema.Element[]>({
+    name: "schemaElement",
     combine: values => values.reduce((set: readonly Schema.Element[], elt) => set.concat(elt), none),
     static: true
   })
@@ -950,6 +951,7 @@ export namespace GardState {
   /// controls whether the editor's DOM is set to be editable (and
   /// thus focusable).
   export const readOnly = GardState.Facet.define<boolean, boolean>({
+    name: "readOnly",
     combine: values => values.length ? values[0] : false
   })
 
@@ -962,6 +964,7 @@ export namespace GardState {
   /// that the direction is already accurate during initialization.
   /// Defaults to true.
   export const textLTR = GardState.Facet.define<boolean, boolean>({
+    name: "textLTR",
     combine: values => values.length ? values[0] : true,
     static: true
   })
@@ -975,6 +978,7 @@ export namespace GardState {
   /// instance of this to make the editor aware of the meaning of the
   /// {@link types.Direction} mark.
   export const textblockLTR = GardState.Facet.define<((plot: Plot) => boolean | null)>({
+    name: "textblockLTR",
     static: true
   })
 
@@ -984,12 +988,14 @@ export namespace GardState {
   /// corresponds to the arrow on key. When disabled, the motion uses
   /// the string index order instead.
   export const visualCursorMotion = GardState.Facet.define<boolean, boolean>({
+    name: "visualCursorMotion",
     combine(values) { return !values.length ? true : values[0] },
     static: true
   })
 
   /// @hidden
   export const isAtom = GardState.Facet.define<[Plot.Type, boolean], Map<Plot.Type, boolean>>({
+    name: "isAtom",
     static: true,
     combine(inputs) {
       let map = new Map<Plot.Type, boolean>()
@@ -999,7 +1005,10 @@ export namespace GardState {
   })
 }
 
-const initField = GardState.Facet.define<{field: GardState.Field<unknown>, create: (state: GardState) => unknown}>({static: true})
+const initField = GardState.Facet.define<{field: GardState.Field<unknown>, create: (state: GardState) => unknown}>({
+  name: "init",
+  static: true
+})
 
 function addValue<T>(set: T[], value: T) {
   if (set.indexOf(value) < 0) set.push(value)
@@ -1171,6 +1180,7 @@ interface DynamicSlot {
 
 // Kludge to avoid cyclic dependency with ./selection
 GardSelection.selectionType = GardState.Facet.define<SelectionType>({
+  name: "selectionType",
   combine(values) {
     let types = [GardSelection.Text.type, GardSelection.Node.type, ...values]
     for (let i = 0; i < types.length; i++) for (let j = i + 1; j < types.length; j++) {
@@ -1181,6 +1191,6 @@ GardSelection.selectionType = GardState.Facet.define<SelectionType>({
   static: true
 })
 
-Transaction.extender = GardState.Facet.define()
+Transaction.extender = GardState.Facet.define({name: "extender"})
 
-Transaction.appender = GardState.Facet.define()
+Transaction.appender = GardState.Facet.define({name: "appender"})

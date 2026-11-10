@@ -6,7 +6,9 @@ import {Command} from "wordgard/command"
 import {PhraseSet, imagePhrases} from "wordgard/phrases"
 import cr from "crelt"
 
-export const imageUploader = GardState.Facet.define<(file: File, wg: Wordgard, progress: (percent: number) => void) => Promise<string>>()
+export const imageUploader = GardState.Facet.define<
+  (file: File, wg: Wordgard, progress: (percent: number) => void) => Promise<string>
+>({name: "imageUploader"})
 
 const imageTypes: Node.Type[] = [Image, Figure, CaptionedFigure]
 

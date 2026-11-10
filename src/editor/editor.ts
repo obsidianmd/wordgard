@@ -20,7 +20,7 @@ import {setDOMSelection, moveVertically, moveToLineBoundary} from "./selection"
 import {cursorBlinkRate, CursorLayer} from "./drawcursor"
 import {exceptionSink, logException} from "./util"
 
-const dirCompartment = GardState.Compartment.define()
+const dirCompartment = GardState.Compartment.define("direction")
 
 const enum Flush { No, Yes, Read }
 
@@ -589,7 +589,7 @@ export class Wordgard {
   /// module](https://github.com/marijnh/style-mod#documentation) to
   /// an editor. The editor will ensure that the module is mounted in
   /// its {@link Wordgard.root document root}.
-  static styleModule = GardState.Facet.define<StyleModule>()
+  static styleModule = GardState.Facet.define<StyleModule>({name: "styleModule"})
 
   /// Returns an extension that can be used to add a DOM event handler
   /// to the editor. For any given event, such functions are ordered
@@ -627,7 +627,7 @@ export class Wordgard {
   static scrollHandler = GardState.Facet.define<(
     wg: Wordgard,
     target: {from: number, to: number} & Wordgard.ScrollSpec
-  ) => boolean>()
+  ) => boolean>({name: "scrollHandler"})
 
   /// Allows you to provide a function that should be called when the
   /// library catches an exception from an extension (mostly from
@@ -639,7 +639,9 @@ export class Wordgard {
   /// Registers a listener function to be called whenever a set of
   /// transactions is applied to the editor. This function may
   /// dispatch additional transactions, if needed.
-  static transactionListener = GardState.Facet.define<(trs: readonly Transaction[], wg: Wordgard) => void>()
+  static transactionListener = GardState.Facet.define<(trs: readonly Transaction[], wg: Wordgard) => void>({
+    name: "transactionListener"
+  })
 
   private runTransactionListeners(trs: readonly Transaction[]) {
     for (let l of this.state.facet(Wordgard.transactionListener)) {
@@ -659,7 +661,7 @@ export class Wordgard {
   /// after the editor flushes updates to the DOM. Dispatching
   /// transactions from such a function is allowed, but will cause a
   /// new, separate update to happen.
-  static updateListener = GardState.Facet.define<(update: Wordgard.Update) => void>()
+  static updateListener = GardState.Facet.define<(update: Wordgard.Update) => void>({name: "updateListener"})
 
   /// Facet that controls whether the editor content DOM is editable.
   /// When its highest-precedence value is `false`, the element will
@@ -671,7 +673,10 @@ export class Wordgard {
   /// A non-editable editor will, by default, not be focusable. You
   /// can set a {@link Wordgard.contentAttributes content attribute}
   /// of `tabindex: 0` to make an uneditable Wordgard focusable.
-  static editable = GardState.Facet.define<boolean, boolean>({combine: values => values.length ? values[0] : true })
+  static editable = GardState.Facet.define<boolean, boolean>({
+    name: "editable",
+    combine: values => values.length ? values[0] : true
+  })
 
   /// Controls the length of a full cursor blink cycle, in milliseconds.
   /// Defaults to 1200. Can be set to 0 to disable blinking.
@@ -774,16 +779,19 @@ export class Wordgard {
   /// Provides a Content Security Policy nonce to use when creating
   /// the style sheets for the editor. Holds the empty string when no
   /// nonce has been provided.
-  static cspNonce = GardState.Facet.define<string, string>({combine: values => values.length ? values[0] : ""})
+  static cspNonce = GardState.Facet.define<string, string>({
+    name: "cspNonce",
+    combine: values => values.length ? values[0] : ""
+  })
 
   /// Facet that provides additional DOM attributes for the editor's
   /// editable DOM element, either directly, or as a function from the
   /// editor state.
-  static contentAttributes = GardState.Facet.define<AttrSource>()
+  static contentAttributes = GardState.Facet.define<AttrSource>({name: "contentAttributes"})
 
   /// Facet that provides DOM attributes for the editor's outer
   /// element.
-  static editorAttributes = GardState.Facet.define<AttrSource>()
+  static editorAttributes = GardState.Facet.define<AttrSource>({name: "editorAttributes"})
 
   /// State effect used to include screen reader announcements in a
   /// transaction. These will be added to the DOM in a visually hidden
@@ -801,7 +809,8 @@ export class Wordgard {
   /// considered blocked from view when scrolling something into view.
   /// This is only used by plugins that introduce elements that cover
   /// part of the editor (for example a gutter).
-  static coveredMargins = GardState.Facet.define<(wg: Wordgard) => Partial<DOMRect> | null>()
+  // FIXME overhaul this to avoid the issues seen in CM
+  static coveredMargins = GardState.Facet.define<(wg: Wordgard) => Partial<DOMRect> | null>({name: "coveredMargins"})
 
   /// Given a DOM element that may be a Wordgard editor, retrieve its
   /// editor instance.
@@ -1082,7 +1091,7 @@ export namespace Wordgard {
   }
 }
 
-export const editorPlugin = GardState.Facet.define<Wordgard.Plugin<Wordgard.Plugin.Value>>()
+export const editorPlugin = GardState.Facet.define<Wordgard.Plugin<Wordgard.Plugin.Value>>({name: "editorPlugin"})
 
 const cursorPlugin: Wordgard.Plugin<any> = Wordgard.Plugin.fromClass(CursorLayer)
 

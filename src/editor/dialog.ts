@@ -212,6 +212,7 @@ const openDialog = Transaction.Effect.define<OpenDialog>()
 const closeDialog = Transaction.Effect.define<OpenDialog>()
 
 const dialogs = GardState.Field.define<readonly OpenDialog[]>({
+  name: "dialogs",
   create: () => [],
   update: (value, tr) => {
     for (let e of tr.effects) {

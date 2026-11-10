@@ -223,6 +223,7 @@ export namespace ColorPicker {
   /// Facet used to configure the width (in color widgets) of the
   /// color picker. Defaults to 10.
   export const width = GardState.Facet.define<number, number>({
+    name: "colorPickerWidth",
     combine: values => values.length ? values[0] : 10
   })
 
@@ -230,6 +231,7 @@ export namespace ColorPicker {
   /// collection of 80 colors, starting with an empty one for clearing
   /// color.
   export const options = GardState.Facet.define<readonly ColorPicker.Option[], readonly ColorPicker.Option[]>({
+    name: "colorPickerOptions",
     combine: values => values.length ? values[0] : defaultColors()
   })
 

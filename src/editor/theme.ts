@@ -1,9 +1,13 @@
 import {GardState} from "wordgard/state"
 import {StyleModule, StyleSpec} from "style-mod"
 
-export const theme = GardState.Facet.define<string, string>({combine: strs => strs.join(" ")})
+export const theme = GardState.Facet.define<string, string>({
+  name: "theme",
+  combine: strs => strs.join(" ")
+})
 
 export const colorScheme = GardState.Facet.define<"dark" | "light" | "auto", "dark" | "light" | "auto">({
+  name: "colorScheme",
   combine: values => values.length ? values[0] : "light"
 })
 

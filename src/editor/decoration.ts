@@ -385,6 +385,7 @@ export namespace Decoration {
     /// for very simple decoration sets, and you'll usually want to
     /// keep your set in a state field and update it incrementally.
     static source = GardState.Facet.define<(state: GardState) => PointSet<Point>>({
+      name: "pointDecorations",
       combine: sources => sources.concat(nodeSelection)
     })
 
@@ -442,7 +443,7 @@ export namespace Decoration {
     /// source function will be called on every update. Generating big
     /// range sets on the fly will not perform well, so you'll often
     /// want to store these in a state field.
-    static source = GardState.Facet.define<(state: GardState) => Range.Set>()
+    static source = GardState.Facet.define<(state: GardState) => Range.Set>({name: "rangeDecorations"})
 
     /// Create a {@link RangeSet} from an array or source function of
     /// range decorations.
@@ -488,18 +489,19 @@ export namespace Decoration {
 type TagShape = {type: Node.Type, shape: (tag: Node.Tag) => Decoration.Shape}
 
 const tagShape = GardState.Facet.define<TagShape, Map<Node.Type, (tag: Node.Tag) => Decoration.Shape>>({
+  name: "tagShape",
   combine: shapes => new Map(shapes.map(s => [s.type, s.shape] as const).reverse())
 })
 
 type TagWrapper = {type: Node.Type, elt: DecoElt, target: Elt.Selector | null}
 
-const tagWrapper = GardState.Facet.define<TagWrapper>()
+const tagWrapper = GardState.Facet.define<TagWrapper>({name: "tagWrapper"})
 
 const enum WidgetPlace { Before, After, Start, End }
 
 type TagWidget = {type: Node.Type, place: WidgetPlace, widget: Widget | ((tag: Node.Tag) => Widget)}
 
-const tagWidget = GardState.Facet.define<TagWidget>()
+const tagWidget = GardState.Facet.define<TagWidget>({name: "tagWidget"})
 
 type TagAttribute = {
   type: Node.Type,
@@ -508,7 +510,7 @@ type TagAttribute = {
   target: Elt.Selector | null
 }
 
-const tagAttribute = GardState.Facet.define<TagAttribute>()
+const tagAttribute = GardState.Facet.define<TagAttribute>({name: "tagAttribute"})
 
 type MarkShape = {
   type: Mark.Type,
@@ -516,6 +518,7 @@ type MarkShape = {
 }
 
 const markShape = GardState.Facet.define<MarkShape, Map<Mark.Type, Mark.Type>>({
+  name: "markShape",
   combine: shapes => new Map(shapes.map(s => [s.type, s.modified] as const).reverse())
 })
 
