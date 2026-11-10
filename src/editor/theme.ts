@@ -38,7 +38,7 @@ export const baseStyles = buildTheme("." + styleID, {
     border: "1px solid var(--wg-border-color)"
   },
 
-  "&:has(> wg-scroller > wg-content:focus)": {
+  "&.wg-focused": {
     outline: "1px solid var(--wg-highlight-color)",
 
     "& > wg-scroller > wg-cursor-layer": {

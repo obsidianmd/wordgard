@@ -318,7 +318,7 @@ export class Wordgard {
 
   private updateAttrs() {
     let editorAttrs = attrsFromFacet(this, Wordgard.editorAttributes, [
-      "class", this.themeClasses
+      "class", this.themeClasses + (this.inputState.notifiedFocused ? " wg-focused" : "")
     ])
     let contentAttrs = attrsFromFacet(this, Wordgard.contentAttributes, [
       "aria-multiline", "true",
@@ -725,7 +725,7 @@ export class Wordgard {
   /// the editor's {@link Wordgard.dom wrapper element} (to which the
   /// scope class will be added) need to be explicitly differentiated
   /// by adding an `&` to the selector for that element—for example
-  /// `&:has(wg-content:focus)`.
+  /// `&.wg-focused`.
   static theme(spec: Record<string, StyleSpec>): GardState.Extension {
     let prefix = StyleModule.newName()
     return [theme.of(prefix), Wordgard.styleModule.of(buildTheme(`.${prefix}`, spec, {
