@@ -58,6 +58,9 @@ export abstract class BaseType<Param> {
 
   /// Whether this node is {@link Node.Spec.selectable selectable}.
   get isSelectable() { return (this.flags & NodeFlag.Selectable) > 0 }
+
+  /// @internal
+  toString() { return this.name }
 }
 
 export abstract class BaseTag<Param> {
