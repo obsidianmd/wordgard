@@ -87,6 +87,13 @@ describe("RangeSet", () => {
     ist(str(rs), "a@0-2 a@6-8")
   })
 
+  it("doesn't append to reused chunks", () => {
+    //let v = {inclusiveStart: false, inclusiveEnd: false, eq(other) { return other == this }}
+    let set = RangeSet.create([[V.a, 0, 1], [V.a, 3, 4]])
+    set.modify({add: [[V.b, 5, 6]]})
+    ist(str(set), "a@0-1 a@3-4")
+  })
+
   it("properly maps ranges at the end of the document", () => {
     ist(str(RangeSet.create([[V.a, 2, 4]]).map(ChangeSet.new([0, 1, 4, -1], []))), "a@3-5")
   })

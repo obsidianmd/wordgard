@@ -33,11 +33,13 @@ class SetBuilder<T extends PointSet.Value> {
   chunks: Chunk<T>[] = []
   lastPos = -1
   lastSide = -1
+  closed = false
 
   addChunk(chunk: Chunk<T>) {
     this.chunks.push(chunk)
     this.lastPos = chunk.end
     this.lastSide = chunk.endSide
+    this.closed = true
   }
 
   add(source: Set.Source<T>, pre?: (value: T, pos: number) => void) {
@@ -54,12 +56,14 @@ class SetBuilder<T extends PointSet.Value> {
 
   addPoint(value: T, pos: number) {
     let chunk: Chunk<T> | undefined
-    if (this.chunks.length) {
+    let wasClosed = this.closed
+    if (this.chunks.length && !wasClosed) {
       chunk = this.chunks[this.chunks.length - 1]
       if (chunk.value.length >= ChunkSize.Max) chunk = undefined
     }
     if (!chunk) {
       this.chunks.push(chunk = new Chunk(pos, [], []))
+      this.closed = false
     }
     chunk.pos.push(pos - chunk.start)
     chunk.value.push(value)
@@ -73,6 +77,8 @@ class SetBuilder<T extends PointSet.Value> {
         if (nextI < 0) {
           if (!chunkI) break
           nextChunk = this.chunks[--chunkI]
+          if (wasClosed)
+            nextChunk = this.chunks[chunkI] = new Chunk(nextChunk.start, nextChunk.pos.slice(), nextChunk.value.slice())
           nextI = nextChunk.value.length - 1
         }
         if ((pos - nextChunk.pos[nextI] || value.side - nextChunk.value[nextI].side) >= 0) break

@@ -27,6 +27,7 @@ class SetBuilder<T extends RangeSet.Value> {
   spilled: SetBuilder<T> | null = null
   lastTo = -1
   lastFrom = -1
+  closed = false
 
   get next() {
     return this.spilled || (this.spilled = new SetBuilder<T>())
@@ -38,6 +39,7 @@ class SetBuilder<T extends RangeSet.Value> {
     } else {
       this.chunks.push(chunk)
       this.lastTo = chunk.end
+      this.closed = true
     }
   }
 
@@ -62,12 +64,13 @@ class SetBuilder<T extends RangeSet.Value> {
 
   addInner(value: T, from: number, to: number) {
     let chunk: Chunk<T> | undefined
-    if (this.chunks.length) {
+    if (this.chunks.length && !this.closed) {
       chunk = this.chunks[this.chunks.length - 1]
       if (chunk.value.length >= ChunkSize.Max) chunk = undefined
     }
     if (!chunk) {
       this.chunks.push(chunk = new Chunk(from, [], [], []))
+      this.closed = false
     }
     chunk.from.push(from - chunk.start)
     chunk.to.push(to - chunk.start)
