@@ -37,7 +37,7 @@ export function imageResizing(): GardState.Extension {
   return [GardState.schemaElement.of(ImageSize), imageResizing.keyBindings, imageResizing.dragHandle]
 }
 
-const resizeTheme = Wordgard.theme({
+const resizeStyle = Wordgard.styles({
   ".wg-resize-hover": {
     display: "inline-block",
     lineHeight: "0.1",
@@ -182,7 +182,7 @@ export namespace imageResizing {
     GardState.prec.high(resizeHandlers),
     resizeState,
     Decoration.Point.source.of(s => s.field(resizeState).deco),
-    resizeTheme
+    resizeStyle
   ]
 }
 
