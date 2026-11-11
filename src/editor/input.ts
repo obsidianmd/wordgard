@@ -161,6 +161,7 @@ export class InputState {
     this.lastKeyCode = event.keyCode
     this.lastKeyTime = Date.now()
     this.shiftKey = event.keyCode == 16 || event.shiftKey
+    if (this.composing && event.isComposing === false) compositionEnd(this.wg)
     return false
   }
 
@@ -239,6 +240,8 @@ export class InputState {
 
   // Update the editor state for a beforeinput event.
   beforeInput(event: InputEvent, data: InputEventData) {
+    if (this.composing && event.isComposing === false) compositionEnd(this.wg)
+
     let type = event.inputType, range: {from: number, to: number} | undefined
     let {wg} = this, sel = wg.state.selection
     if (data.domRange) {
@@ -377,7 +380,8 @@ export class InputState {
   }
 
   clearComposition() {
-    let comp = this.composing!
+    let comp = this.composing
+    if (!comp) return false
     this.composing = null
     this.compositionPendingKey = true
     this.compositionEndedAt = Date.now()
