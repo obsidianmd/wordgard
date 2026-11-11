@@ -8,8 +8,7 @@ import {findClusterBreak} from "@marijn/find-cluster-break"
 import {Wordgard} from "./editor"
 import {rangeForClick} from "./selection"
 import browser from "./browser"
-import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex,
-        isEquivalentPosition, getSelectionRange} from "./dom"
+import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex} from "./dom"
 import {readClipboard, writeClipboard} from "./clipboard"
 import {eqArray, logException} from "./util"
 import {Tile, TextTile, WidgetTile, CoordPos} from "./tile"
@@ -272,14 +271,8 @@ export class InputState {
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       Command.dispatch(wg, insertText, {from, to, insert, userEvent: "input.type"})
     } else if (type == "insertFromPaste") {
-      let isSel = this.unflushedSelection
-      if (!isSel) {
-        let r = data.domRange!.range, domSel = getSelectionRange(wg.root)
-        isSel = !!domSel && isEquivalentPosition(r.startContainer, r.startOffset, domSel.startContainer, domSel.startOffset) &&
-          isEquivalentPosition(r.endContainer, r.endOffset, domSel.endContainer, domSel.endOffset)
-      }
       let transfer = event.dataTransfer!
-      doPaste(wg, getHTML(transfer), getText(transfer), isSel ? null : range!, event)
+      doPaste(wg, getHTML(transfer), getText(transfer), this.unflushedSelection ? wg.state.selection : range!, null)
     } else if ((type == "insertReplacementText" || type == "insertFromYank")) {
       let transfer = event.dataTransfer!
       let read = readClipboard(wg.state, getHTML(transfer), getText(transfer), wg.state.sel.head, true)
@@ -471,12 +464,19 @@ function computeHandlers(state: GardState) {
 export function doPaste(
   wg: Wordgard, html: string, text: string,
   targetRange: {from: number, to: number} | null,
-  event: InputEvent | null
+  event: ClipboardEvent | null
 ) {
   let {from, to} = targetRange || wg.state.selection.replacementRange
   let slice = readClipboard(wg.state, html, text, wg.state.doc.resolve(from), wg.inputState.shiftKey)
-  if (!targetRange && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty, text, html)))
-    return
+  if (!targetRange) {
+    if (!event) {
+      event = new ClipboardEvent("paste", {clipboardData: new DataTransfer})
+      event.clipboardData!.setData("text/html", html)
+      event.clipboardData!.setData("text/plain", text)
+    }
+    if (wg.state.facet(pasteHandler).some(h => h(wg, event!, slice || Slice.empty, text, html)))
+      return
+  }
   if (slice) {
     wg.dispatch({
       changes: {correct: {from, to, insert: slice, fit: true}, local: true},
@@ -694,7 +694,7 @@ export const dropHandler = GardState.Facet.define<(
 
 export const pasteHandler = GardState.Facet.define<(
   wg: Wordgard,
-  event: InputEvent | null,
+  event: ClipboardEvent,
   slice: Slice, html: string, text: string
 ) => boolean>({name: "pasteHandler"})
 
@@ -856,6 +856,13 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
 
   copy,
   cut: copy,
+
+  paste(wg, event) {
+    let data = event.clipboardData
+    if (!data) return false
+    doPaste(wg, getHTML(data), getText(data), null, event)
+    return true
+  },
 
   drop(wg, event) {
     let data = event.dataTransfer
