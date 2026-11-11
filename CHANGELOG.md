@@ -1,3 +1,79 @@
+## 0.7.0 (2026-11-11)
+
+### Breaking changes
+
+`Node.Group.define` now takes a spec object (including an optional debug name) rather than just a parent group.
+
+The `event` argument passed to `pasteHandler`s may now be null.
+
+`GardState.wordAt` can now return null when there is no word at the given position.
+
+### Bug fixes
+
+Fix a crash in `decoratePlots` that occurred when multiple separate changes affected a decorated plot in a single transaction.
+
+Fix an issue where structure added at the side of a node but outside of its content element would be moved into the content element when the node's content was changed.
+
+Don't crash if a content update changes that atomicity of a partially-replaced plot.
+
+Fix an issue where pasting or dropping content could change the depth of the content after the change.
+
+Make sure `insertText` doesn't create empty text nodes.
+
+Fix an issue in `Wordgard.label` that caused it to apply the label to the wrapper, not the editable element.
+
+Improve the performance of `ChangeSet.create` when given a long sequence of changes in inverse (end-to-start of document) order.
+
+Make Delete/Backspace in an empty plot delete the plot before it tries to delete the leaf before or after it.
+
+`deleteUnit`, when at the start of a wrapped textblock with direction `"backward"`, will now first try to unwrap the textblock, before joining it to a previous one.
+
+`liftEmptyBlock` (and thus Enter when in an empty block) will now rejoin a split list item if the block is right after the split.
+
+Fix an issue where `Decoration.Point.shape` would drop the wrappers or attributes added by marks.
+
+Fix a bug that caused DOM updates to consider attribute sets equal that aren't.
+
+Fix an issue that caused widgets in the middle of a spanning node to be drawn after it.
+
+Fix an issue where updates that started or ended inside atomic nodes could emit spurious widgets.
+
+Fix a bug with partially updated atom nodes corrupting the view tile tree.
+
+Fix invalid syntax in dist/index.js output.
+
+Fix an issue in `RangeSet.map` where it would duplicate ranges with changes in their middle.
+
+Fix an issue where pasting over a custom selection could incorrectly identify the paste as not targeting the selection.
+
+Fix `Pos.parentAt` to not always throw when .
+
+Fix an issue where reconfiguring the event handlers only took effect when the plugin config also changed.
+
+Fix an issue where the `openSingleQuote`/`openDoubleQuote` input rules would delete the character before the quote.
+
+Fix a bug that prevented set-valued marks from being properly removed by change sets.
+
+Fix an issue where double clicking between textblocks could create a block cursor there.
+
+Fix broken handling over boundary-overlapping changes in `ChangeSet.clip`.
+
+Fix a bug in range and point sets where creating a modified copy could mutate the original.
+
+### New features
+
+`PointSet.at` now supports passing in a predicate to choose between multiple points at a given position.
+
+wordgard/table now exports the `TableMap` class, which is used to work with a table's spatial shape.
+
+`Transaction.annotations` (an array of annotations for the transaction) is now public.
+
+`Wordgard.findFromDOM` can now be used to get an editor instance from the editor's DOM node.
+
+State fields, facets, compartments, effects, and annotations can now be tagged with a debug string and have more meaningful `toString` representations.
+
+The new `Wordgard.paste` method can be used to initiate a paste into the editor.
+
 ## 0.6.2 (2026-10-20)
 
 ### Bug fixes
