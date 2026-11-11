@@ -127,6 +127,7 @@ export const baseStyles = buildTheme("." + styleID, {
   ".wg-buffer": {
     verticalAlign: "bottom",
     height: "1em",
+    display: "inline"
   },
   ".wg-blockBuffer": {
     position: "absolute"
