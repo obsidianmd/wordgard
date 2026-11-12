@@ -188,6 +188,10 @@ describe("mergeCells", () => {
   it("won't merge a broken rectangle", () =>
     test(doc(table(tr(td("a", 0), colspan(2, td("b"))),
                    tr(td("c"), td("d", 1), td("e")))), merge, null))
+
+  it("won't merge a rectangle broken at the bottom", () =>
+    test(doc(table(tr(td("a", 0), rowspan(2, td("b")), td("c", 1)),
+                   tr(td("d"), td("e")))), merge, null))
 })
 
 describe("splitCell", () => {
