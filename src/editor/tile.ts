@@ -1232,8 +1232,13 @@ class ContentUpdate {
   copyEltStructure(tile: EltTile) {
     this.reused.set(tile, Reused.DOM)
     let copy = EltTile.of(tile.elt, tile.tag, tile.flags, tile.boundary * 2, tile.dom)
-    if (tile.isNodeOuter) for (let child of tile.children) if (child.isNodeInner) {
-      copy.addChild((child.flags & TileFlag.HasContent) ? this.copyEltStructure(child as EltTile) : child)
+    for (let child of tile.children) if (child.isNodeInner) {
+      if (child.flags & TileFlag.HasContent) {
+        copy.addChild(this.copyEltStructure(child as EltTile))
+      } else {
+        this.reused.set(child, Reused.Full)
+        copy.addChild(child)
+      }
     }
     return copy
   }
