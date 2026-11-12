@@ -4,7 +4,7 @@ import {findClusterBreak} from "@marijn/find-cluster-break"
 import {Widget, DecoElt, Decoration, DecoIterator, findChangedRanges, WrapperSource,
         renderWrapper, renderMarkWrapper, DecoSet, getDecoSet} from "./decoration"
 import {eqArray} from "./util"
-import {textRange, singleRect, DOMNode, rmDOM} from "./dom"
+import {textRange, singleRect, DOMNode, rmDOM, isElt, isText} from "./dom"
 import {separateChange, Changes, isEmpty} from "./changes"
 import {type CompositionInfo} from "./input"
 import {type Wordgard} from "./editor"
@@ -239,8 +239,8 @@ export class CompositeTile extends Tile {
       for (let child of this.children) {
         if (child instanceof WidgetTile && !child.widget.type.inFlow) continue
         let rects, {dom} = child
-        if (dom.nodeType == 1) rects = (dom as Element).getClientRects()
-        else if (dom.nodeType == 3) rects = textRange(dom as Text, 0, dom.nodeValue!.length).getClientRects()
+        if (isElt(dom)) rects = dom.getClientRects()
+        else if (isText(dom)) rects = textRange(dom, 0, dom.nodeValue!.length).getClientRects()
         else continue
         for (let i = 0; i < rects.length; i++) if (add(rects[i], child)) return
       }
@@ -273,8 +273,8 @@ export class CompositeTile extends Tile {
   ): CoordPos {
     let lastBot = -1
     for (let child of this.children) {
-      if (child.isPoint || child.dom.nodeType != 1) continue
-      let rect = (child.dom as Element).getBoundingClientRect()
+      if (child.isPoint || !isElt(child.dom)) continue
+      let rect = child.dom.getBoundingClientRect()
       if (rect.top > y) return CoordPos.create(this.posBeforeChild(child, start), y > (lastBot + rect.top) / 2 ? 1 : -1)
       if (rect.bottom >= y) return child.posAtCoordsInner(this.posBeforeChild(child, start) + child.boundary, state,
                                                           x, y, textblock, Orientation.Col)
@@ -622,7 +622,7 @@ export class EltTile extends CompositeTile {
 }
 
 function setUneditable(dom: Element | Text) {
-  if (dom.nodeType != 1) {
+  if (!isElt(dom)) {
     let span = document.createElement("span")
     span.appendChild(dom)
     dom = span
@@ -675,7 +675,7 @@ export class WidgetTile extends Tile {
   posAtCoordsInner(start: number, state: GardState, x: number, y: number,
                    textblock: TextblockMap | null, orientation: Orientation): CoordPos {
     if (!this.tag) return CoordPos.create(start, 1)
-    let rect = this.dom.nodeType == 1 ? (this.dom as Element).getBoundingClientRect()
+    let rect = isElt(this.dom) ? this.dom.getBoundingClientRect()
       : textRange(this.dom as Text, 0, this.length).getBoundingClientRect()
     let after = orientation == Orientation.Col ? y > (rect.top + rect.bottom) / 2
       : (x < (rect.left + rect.right) / 2) == ltrAt(state, start, 1, textblock)
@@ -1232,8 +1232,13 @@ class ContentUpdate {
   copyEltStructure(tile: EltTile) {
     this.reused.set(tile, Reused.DOM)
     let copy = EltTile.of(tile.elt, tile.tag, tile.flags, tile.boundary * 2, tile.dom)
-    if (tile.isNodeOuter) for (let child of tile.children) if (child.isNodeInner) {
-      copy.addChild((child.flags & TileFlag.HasContent) ? this.copyEltStructure(child as EltTile) : child)
+    for (let child of tile.children) if (child.isNodeInner) {
+      if (child.flags & TileFlag.HasContent) {
+        copy.addChild(this.copyEltStructure(child as EltTile))
+      } else {
+        this.reused.set(child, Reused.Full)
+        copy.addChild(child)
+      }
     }
     return copy
   }

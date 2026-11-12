@@ -621,7 +621,7 @@ export namespace GardState {
       return this.derive(s => get(s.field(field)))
     }
 
-    /// @internal
+    /// @hidden
     tag!: Output
 
     /// @internal

@@ -1,6 +1,7 @@
 import {Slice, Leaf, Plot, Node, Pos, serialize, parse, Token} from "wordgard/doc"
 import {GardState} from "wordgard/state"
 import browser from "./browser"
+import {isElt} from "./dom"
 
 export const clipboardOutputFilter = GardState.Facet.define<(content: Slice, state: GardState) => Slice>({
   name: "clipboardOutputFilter"
@@ -43,7 +44,7 @@ export function writeClipboard(state: GardState, slice: Slice, data: DataTransfe
   }).toDOM()
 
   let needsWrap, wrappers = 0
-  while (dom.firstChild && dom.firstChild.nodeType == 1 && (needsWrap = wrapMap[dom.firstChild.nodeName.toLowerCase()])) {
+  while (dom.firstChild && isElt(dom.firstChild) && (needsWrap = wrapMap[dom.firstChild.nodeName.toLowerCase()])) {
     for (let i = needsWrap.length - 1; i >= 0; i--) {
       let wrapper = doc.createElement(needsWrap[i])
       wrapper.setAttribute("wg-wrap", "true")
@@ -53,7 +54,7 @@ export function writeClipboard(state: GardState, slice: Slice, data: DataTransfe
     }
   }
 
-  if (dom.firstChild && dom.firstChild.nodeType == 1)
+  if (dom.firstChild && isElt(dom.firstChild))
     (dom.firstChild as Element).setAttribute("wg-content", "true")
 
   let wrap = doc.createElement("div")

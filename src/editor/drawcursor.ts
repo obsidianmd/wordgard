@@ -3,7 +3,7 @@ import {GardState} from "wordgard/state"
 import type {Wordgard} from "./editor"
 import {TextTile} from "./tile"
 import {coordsAtPos, gapCursorRect} from "./coords"
-import {textRange} from "./dom"
+import {textRange, isElt} from "./dom"
 // FIXME this is a bit sloppy
 import {renderMarks} from "./decoration"
 
@@ -25,7 +25,7 @@ class CursorStyle {
 
   static read(node: Element | Text, height: number) {
     let win = node.ownerDocument.defaultView || window
-    let elt = node.nodeType == 1 ? node as Element : node.parentNode as Element
+    let elt = isElt(node) ? node : node.parentNode as Element
     let style = win.getComputedStyle(elt)
     return new CursorStyle(height, style.verticalAlign, style.color, +style.fontWeight > 400, style.fontStyle == "italic")
   }
@@ -132,7 +132,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
       bot = vertRect.bottom
     } else {
       let win = ref.dom.ownerDocument.defaultView || window
-      let refAlign = win.getComputedStyle((ref.dom.nodeType == 1 ? ref.dom : ref.dom.parentNode) as Element).verticalAlign
+      let refAlign = win.getComputedStyle(isElt(ref.dom) ? ref.dom : ref.dom.parentNode as Element).verticalAlign
       if (style && refAlign != style.align) {
         bot += alignOffset(refAlign, rect.height) - alignOffset(style.align, style.height)
       }

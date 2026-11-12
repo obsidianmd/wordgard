@@ -8,7 +8,8 @@ import {findClusterBreak} from "@marijn/find-cluster-break"
 import {Wordgard} from "./editor"
 import {rangeForClick} from "./selection"
 import browser from "./browser"
-import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex} from "./dom"
+import {getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter,
+        domIndex, isElt, isText} from "./dom"
 import {readClipboard, writeClipboard} from "./clipboard"
 import {eqArray, logException} from "./util"
 import {Tile, TextTile, WidgetTile, CoordPos} from "./tile"
@@ -200,11 +201,11 @@ export class InputState {
   // positions when there are unflushed DOM changes.
   getDOMPos(node: Node, offset: number) {
     if (!this.domChanges) return this.wg.docTile.posFromDOM(node, offset)
-    if (node.nodeType == 1 && offset && node.childNodes[offset - 1].nodeType == 3) {
+    if (isElt(node) && offset && isText(node.childNodes[offset - 1])) {
       node = node.childNodes[offset - 1]
       offset = node.nodeValue!.length
     }
-    let inText = node.nodeType == 3 && !this.wg.docTile.nearest(node)?.isPoint
+    let inText = isText(node) && !this.wg.docTile.nearest(node)?.isPoint
     let ref = this.wg.docTile.posFromDOM(node, inText ? 0 : offset)
     let dir: -1 | 1 = -1
     let textBefore = node.parentNode && textNodeBefore(node.parentNode, domIndex(node))
@@ -508,7 +509,7 @@ class MouseSelection {
   dragging: null | boolean
   extend: boolean
   lastEvent: MouseEvent
-  scrollParents: {x?: HTMLElement, y?: HTMLElement}
+  scrollParents: {x?: Element, y?: Element}
   scrollSpeed = {x: 0, y: 0}
   scrolling = -1
 

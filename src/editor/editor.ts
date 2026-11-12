@@ -15,7 +15,7 @@ import {InputState, isFocusChange, mouseSelectionStyle,
         dragBehavior, pasteHandler, dropHandler, eventHandler, eventObserver, doPaste} from "./input"
 import {ViewState, scrollIntoView, ScrollTarget} from "./viewstate"
 import browser from "./browser"
-import {DOMNode, getRoot, clearScratchRange, scrollRectIntoView} from "./dom"
+import {DOMNode, getRoot, clearScratchRange, scrollRectIntoView, isElt} from "./dom"
 import {setDOMSelection, moveVertically, moveToLineBoundary} from "./selection"
 import {cursorBlinkRate, CursorLayer} from "./drawcursor"
 import {exceptionSink, logException} from "./util"
@@ -443,7 +443,7 @@ export class Wordgard {
   nodeDOM(pos: number): Element | null {
     this.ensureFlushed()
     let tile = this.docTile.nodeTile(pos)
-    if (!tile || tile.dom.nodeType != 1) return null
+    if (!tile || !isElt(tile.dom)) return null
     return tile.dom as Element
   }
 
@@ -1001,6 +1001,9 @@ export namespace Wordgard {
         if (value) observer(event as HTMLElementEventMap[Event], wg, value)
       }})
     }
+
+    /// @internal
+    toString() { return "Plugin" }
   }
 
   export namespace Plugin {
