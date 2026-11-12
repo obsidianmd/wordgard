@@ -6,6 +6,7 @@ import {phrases} from "wordgard/phrases"
 const enum BranchName { Done, Undone }
 
 const fromHistory = Transaction.Effect.define<{side: BranchName, startDoc: Plot.Doc, rest: Branch | null}>({
+  name: "fromHistory",
   map(value, change) {
     return {
       side: value.side,
@@ -29,6 +30,7 @@ interface HistoryConfig {
 }
 
 const historyConfig = GardState.Facet.define<HistoryConfig, Required<HistoryConfig>>({
+  name: "historyConfig",
   combine(configs) {
     return GardState.Facet.combineConfig(configs, {
       minDepth: 100,
@@ -43,6 +45,8 @@ const historyConfig = GardState.Facet.define<HistoryConfig, Required<HistoryConf
 })
 
 const historyField_ = GardState.Field.define({
+  name: "history",
+
   create() {
     return new HistoryState(null, null)
   },
@@ -130,14 +134,16 @@ export namespace history {
   /// `"before"`, it'll prevent merging with previous transactions. With
   /// `"after"`, subsequent transactions won't be combined with this
   /// one. With `true`, the transaction is isolated on both sides.
-  export const isolate = Transaction.Annotation.define<"before" | "after" | true>()
+  export const isolate = Transaction.Annotation.define<"before" | "after" | true>("historyIsolate")
 
   /// This facet provides a way to register functions that, given a
   /// transaction, provide a set of effects that the history should
   /// store when inverting the transaction. This can be used to
   /// integrate specific effects in the history, so that they can be
   /// undone (and redone again).
-  export const invertedEffects = GardState.Facet.define<(tr: Transaction) => readonly Transaction.Effect<any>[]>()
+  export const invertedEffects = GardState.Facet.define<(tr: Transaction) => readonly Transaction.Effect<any>[]>({
+    name: "invertedEffects"
+  })
 
   export type EventJSON = {
     changes: ChangeSet.JSON,

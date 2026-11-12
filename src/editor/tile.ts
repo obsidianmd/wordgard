@@ -935,6 +935,8 @@ class ContentUpdate {
               let {tag, length, shape, reuse} = this.partialNode
               this.partialNode = null
               this.new.addChild(this.buildNodeShape(tag, length + (to - from), shape, reuse))
+            } else {
+              this.partialNode.length += to - from
             }
           }
         } else if (this.new.lastChild instanceof TextTile && !this.new.lastChild.isComposition) {
@@ -1127,6 +1129,8 @@ class ContentUpdate {
           this.partialNode = null
           this.new.addChild(this.buildNodeShape(tag, node.length, shape, reuse))
           for (let i = 0; i < wrappers; i++) this.up()
+        } else {
+          this.partialNode.length += length
         }
       },
       widget: (widget, side) => {
@@ -1357,7 +1361,10 @@ class ContentUpdate {
         prev.parent = cur
       }
       // Move any point tiles after the wrapper into it
-      for (let j = i + 1; j < cur.children.length; j++) prev.addChild(cur.children[j])
+      for (let j = i + 1; j < cur.children.length; j++) {
+        prev.addChild(cur.children[j])
+        cur.children.splice(j, 1)
+      }
       return prev
     }
     return null

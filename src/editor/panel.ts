@@ -12,6 +12,7 @@ type PanelConfig = {
 }
 
 const panelConfig = GardState.Facet.define<PanelConfig, PanelConfig>({
+  name: "panelConfig",
   combine(configs: readonly PanelConfig[]) {
     let topContainer, bottomContainer
     for (let c of configs) {
@@ -126,6 +127,7 @@ export namespace Panel {
   /// the panel through this facet. (The panel is closed again when its
   /// constructor is no longer provided.) Values of `null` are ignored.
   export const show = GardState.Facet.define<Panel.Constructor | null>({
+    name: "panel",
     enables: panelPlugin
   })
 

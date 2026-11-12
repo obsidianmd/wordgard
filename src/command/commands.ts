@@ -3,7 +3,7 @@ import {GardSelection, GardState, Transaction} from "wordgard/state"
 import {type Wordgard} from "wordgard/editor"
 import {Alignment, Direction, Emphasis, Strong, Underline} from "wordgard/types"
 import {Command} from "./command"
-import {joinForward, joinBackward, liftEmptyBlock, enterInCode,
+import {joinForward, joinBackward, liftEmptyBlock, liftTextblock, enterInCode,
         clearNonFitting, autoJoinBlocks,
         deleteSelection, deleteEmptyPlot, deleteForward, deleteBackward,
         splitTextblock, joinListItems, findUnwrappable, doUnwrapBlock,
@@ -88,18 +88,18 @@ export const enter: Command.Pure = ({state}) => {
 
 /// Delete the selection, or the unit after or before the selection.
 /// If that unit is the start or end of a textblock, this will try to
-/// join that textblock to the next one. Otherwise, if it is a
-/// character or leaf node, that is deleted. If none of that is
-/// possible and the cursor is in an empty textblock, this will delete
-/// the textblock.
+/// join that textblock to the next one. Otherwise, if the cursor is
+/// in an empty textblock, this will delete the textblock. Finally, if
+/// there is a character or leaf node in the given direction, that is
+/// deleted.
 ///
 /// When deleting backward at the start of a list item that has a
 /// sibling before it, this command will try to join those list items.
 export const deleteUnit: Command.Pure<"forward" | "backward"> = ({state}, dir) => {
   if (state.readOnly) return false
   return deleteSelection(state) || (dir == "forward"
-    ? joinForward(state) || deleteForward(state) || deleteEmptyPlot(state, 1)
-    : joinListItems(state) || joinBackward(state) || deleteBackward(state) || deleteEmptyPlot(state, -1))
+    ? joinForward(state) || deleteEmptyPlot(state, 1) || deleteForward(state)
+    : joinListItems(state) || liftTextblock(state) || joinBackward(state) || deleteEmptyPlot(state, -1) || deleteBackward(state))
 }
 
 /// Delete the selection, or the word next to it. Will behave like
@@ -128,9 +128,10 @@ export const deleteToLineEnd: Command<"forward" | "backward"> = (wg, dir) => {
   }
 }
 
-const addToKillBuffer = Transaction.Effect.define<readonly Token[]>()
+const addToKillBuffer = Transaction.Effect.define<readonly Token[]>({name: "addToKillBuffer"})
 
 const killBuffer = GardState.Field.define<{content: readonly Token[], active: boolean}>({
+  name: "killBuffer",
   create() { return {content: [], active: false} },
   update(value, tr) {
     let add = tr.effects.find(e => e.is(addToKillBuffer))

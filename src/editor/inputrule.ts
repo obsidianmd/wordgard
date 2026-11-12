@@ -3,7 +3,7 @@ import {history} from "wordgard/history"
 import {Leaf, Plot, Node, Pos, ChangeSet} from "wordgard/doc"
 import {findWrappable, wrapBlockRange, autoJoinBlocks} from "wordgard/command"
 
-const inputRule = GardState.Facet.define<InputRule>()
+const inputRule = GardState.Facet.define<InputRule>({name: "inputRule"})
 
 const appender = Transaction.appender.of(applyInputRules)
 
@@ -91,6 +91,9 @@ export class InputRule {
       lookahead: empty ? /^$/ : undefined
     })
   }
+
+  /// @internal
+  toString() { return `InputRule(${this.expr})` }
 }
 
 export namespace InputRule {
@@ -135,11 +138,11 @@ export namespace InputRule {
   /// Rule that converts three dots to an ellipsis character.
   export const ellipsis = InputRule.define({expr: /\.\.\.$/, apply: "…"})
   /// “Smart” opening double quotes.
-  export const openDoubleQuote = InputRule.define({expr: /(?:^|[\s\{\[\(\<'"\u2018\u201C])(")$/, apply: "“"})
+  export const openDoubleQuote = InputRule.define({expr: /(?<=^|[\s\{\[\(\<'"\u2018\u201C])"$/, apply: "“"})
   /// “Smart” closing double quotes.
   export const closeDoubleQuote = InputRule.define({expr: /"$/, apply: "”"})
   /// ‘Smart’ opening single quotes.
-  export const openSingleQuote = InputRule.define({expr: /(?:^|[\s\{\[\(\<'"\u2018\u201C])(')$/, apply: "‘"})
+  export const openSingleQuote = InputRule.define({expr: /(?<=^|[\s\{\[\(\<'"\u2018\u201C])'$/, apply: "‘"})
   /// ‘Smart’ closing single quotes.
   export const closeSingleQuote = InputRule.define({expr: /'$/, apply: "’"})
 

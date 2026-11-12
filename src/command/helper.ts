@@ -3,11 +3,34 @@ import {GardSelection, GardState, Transaction} from "wordgard/state"
 import {findClusterBreak} from "@marijn/find-cluster-break"
 
 /// If the cursor is in an empty textblock that can be lifted out of a
-/// parent, return a transaction that does this.
-export function liftEmptyBlock(state: GardState): Transaction.Spec | false {
+/// parent, return a transaction that does this. Unless
+/// `splitListItem` is set to false, if the block is part of a
+/// continued list item, this function will split the item above the
+/// block before it lifts it.
+export function liftEmptyBlock(state: GardState, splitListItem = true): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
   let sel = state.sel, block = sel.head.textblockParent
   if (!block || !sel.head.isAtStart(block) || !sel.head.isAtEnd(block)) return false
+
+  if (splitListItem && block.parent?.parent && block.index && block.parent.parent.node.type.hasRole(Node.Role.List))
+    return {
+      changes: {from: block.before, insert: [Plot.End, block.parent.node.tag]},
+      scrollIntoView: true,
+      userEvent: "split.list"
+    }
+
+  return liftBlock(state, block)
+}
+
+/// Lift the textblock that the cursor is at the start of out of its
+/// innermost parent, if possible.
+export function liftTextblock(state: GardState): Transaction.Spec | false {
+  if (!state.selection.isCursor) return false
+  let {head} = state.sel, block = head.textblockParent
+  return !block || !head.isAtStart(block) ? false : liftBlock(state, block)
+}
+
+function liftBlock(state: GardState, block: Pos.Plot): Transaction.Spec | false {
   let start = block.before, end = block.after, before: Token[] = [], after: Token[] = []
   for (let level = block.parent, index = block.index, atStart = true, atEnd = true, first = true;
        level; first = false, index = level.index, level = level.parent) {
@@ -17,7 +40,7 @@ export function liftEmptyBlock(state: GardState): Transaction.Spec | false {
         {from: block.after, to: end, insert: after}
       ],
       scrollIntoView: true,
-      userEvent: "unwrap.empty"
+      userEvent: "unwrap"
     }
     if (level.node.isInline || level.node.type.isolating) break
     if (index) atStart = false

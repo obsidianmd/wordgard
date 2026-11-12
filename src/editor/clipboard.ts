@@ -2,17 +2,31 @@ import {Slice, Leaf, Plot, Node, Pos, serialize, parse, Token} from "wordgard/do
 import {GardState} from "wordgard/state"
 import browser from "./browser"
 
-export const clipboardOutputFilter = GardState.Facet.define<(content: Slice, state: GardState) => Slice>()
-export const clipboardOutputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
+export const clipboardOutputFilter = GardState.Facet.define<(content: Slice, state: GardState) => Slice>({
+  name: "clipboardOutputFilter"
+})
+export const clipboardOutputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>({
+  name: "clipboardOutputHTMLFilter"
+})
 export const clipboardTextSerializer = GardState.Facet.define<
   (slice: Slice, state: GardState) => string | null
->()
-export const clipboardOutputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
+>({name: "clipboardTextSerializer"})
+export const clipboardOutputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>({
+  name: "clipboardOutputTextFilter"
+})
 
-export const clipboardInputFilter = GardState.Facet.define<(content: Slice, state: GardState) => Slice>()
-export const clipboardInputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
-export const clipboardTextParser = GardState.Facet.define<(text: string, state: GardState) => Slice | null>()
-export const clipboardInputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
+export const clipboardInputFilter = GardState.Facet.define<(content: Slice, state: GardState) => Slice>({
+  name: "clipboardInputFilter"
+})
+export const clipboardInputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>({
+  name: "clipboardInputHTMLFilter"
+})
+export const clipboardTextParser = GardState.Facet.define<(text: string, state: GardState) => Slice | null>({
+  name: "clipboardTextParser"
+})
+export const clipboardInputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>({
+  name: "clipboardInputTextFilter"
+})
 
 export function writeClipboard(state: GardState, slice: Slice, data: DataTransfer) {
   for (let filter of state.facet(clipboardOutputFilter)) slice = filter(slice, state)
@@ -62,9 +76,7 @@ function isOpen(elt: Element) {
   return (elt.getAttribute("wg-open") || null) as "start" | "end" | "start end" | null
 }
 
-export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean): Slice | null {
-  let html = data.getData("text/html")
-  let text = data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list").replace(/\r?\n/g, " ")
+export function readClipboard(state: GardState, html: string, text: string, targetContext: Pos, plain: boolean): Slice | null {
   let slice: Slice
   if (text && (targetContext.parent.node.type.hasRole(Node.Role.Code) || !html || plain)) {
     for (let filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)

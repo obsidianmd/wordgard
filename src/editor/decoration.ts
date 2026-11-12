@@ -1,8 +1,10 @@
 import {GardState, GardSelection} from "wordgard/state"
-import {Mark, Mark as Mark_, Pos, Plot, Leaf, Node, Shape as Shape_, ChangeSet, Schema, Elt, Attributes} from "wordgard/doc"
+import {Mark, Pos, Plot, Leaf, Node, Shape as Shape_, ChangeSet, Schema, Elt, Attributes} from "wordgard/doc"
 import {RangeSet, PointSet, Set} from "wordgard/set"
 import {addSection, Changes, addRange, joinRanges} from "./changes"
 import {type Wordgard} from "./editor"
+
+import Mark_ = Mark
 
 /// A widget describes a piece of DOM content that can be used to
 /// render a node, a part of a node, or an extra element added via a
@@ -127,6 +129,7 @@ export namespace Widget {
     render() {
       let img = document.createElement("img")
       img.className = "wg-buffer"
+      img.alt = ""
       return img
     },
     editable: true
@@ -137,6 +140,7 @@ export namespace Widget {
     render() {
       let img = document.createElement("img")
       img.className = "wg-blockBuffer"
+      img.alt = ""
       return img
     },
     editable: true
@@ -383,6 +387,7 @@ export namespace Decoration {
     /// for very simple decoration sets, and you'll usually want to
     /// keep your set in a state field and update it incrementally.
     static source = GardState.Facet.define<(state: GardState) => PointSet<Point>>({
+      name: "pointDecorations",
       combine: sources => sources.concat(nodeSelection)
     })
 
@@ -440,7 +445,7 @@ export namespace Decoration {
     /// source function will be called on every update. Generating big
     /// range sets on the fly will not perform well, so you'll often
     /// want to store these in a state field.
-    static source = GardState.Facet.define<(state: GardState) => Range.Set>()
+    static source = GardState.Facet.define<(state: GardState) => Range.Set>({name: "rangeDecorations"})
 
     /// Create a {@link RangeSet} from an array or source function of
     /// range decorations.
@@ -486,18 +491,19 @@ export namespace Decoration {
 type TagShape = {type: Node.Type, shape: (tag: Node.Tag) => Decoration.Shape}
 
 const tagShape = GardState.Facet.define<TagShape, Map<Node.Type, (tag: Node.Tag) => Decoration.Shape>>({
+  name: "tagShape",
   combine: shapes => new Map(shapes.map(s => [s.type, s.shape] as const).reverse())
 })
 
 type TagWrapper = {type: Node.Type, elt: DecoElt, target: Elt.Selector | null}
 
-const tagWrapper = GardState.Facet.define<TagWrapper>()
+const tagWrapper = GardState.Facet.define<TagWrapper>({name: "tagWrapper"})
 
 const enum WidgetPlace { Before, After, Start, End }
 
 type TagWidget = {type: Node.Type, place: WidgetPlace, widget: Widget | ((tag: Node.Tag) => Widget)}
 
-const tagWidget = GardState.Facet.define<TagWidget>()
+const tagWidget = GardState.Facet.define<TagWidget>({name: "tagWidget"})
 
 type TagAttribute = {
   type: Node.Type,
@@ -506,7 +512,7 @@ type TagAttribute = {
   target: Elt.Selector | null
 }
 
-const tagAttribute = GardState.Facet.define<TagAttribute>()
+const tagAttribute = GardState.Facet.define<TagAttribute>({name: "tagAttribute"})
 
 type MarkShape = {
   type: Mark.Type,
@@ -514,6 +520,7 @@ type MarkShape = {
 }
 
 const markShape = GardState.Facet.define<MarkShape, Map<Mark.Type, Mark.Type>>({
+  name: "markShape",
   combine: shapes => new Map(shapes.map(s => [s.type, s.modified] as const).reverse())
 })
 
@@ -934,7 +941,7 @@ export class DecoIterator {
         if (started) this.widgets(node.tag, WidgetPlace.Before, walker)
         else started = true
         let hasPending = pendingPos == pos && !node.isText
-        let shape = hasPending && pendingShape ? pendingShape.shape : this.tagShape(node.tag, iter.active)
+        let shape = this.tagShape(node.tag, iter.active, hasPending ? pendingShape : null)
         if (hasPending) for (let deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         if (shape.hasContent) throw new Error("Leaf nodes shapes shouldn't have a content hole")
         walker.node(node, shape, this.nodeWrappers(node.tag, iter.active, true), undefined)
@@ -943,25 +950,27 @@ export class DecoIterator {
       enterPlot: (node, pos) => {
         if (started) this.widgets(node.tag, WidgetPlace.Before, walker)
         else started = true
-        let shape = pendingShape && pendingPos == pos ? pendingShape.shape
-          : this.tagShape(node.tag, iter.active)
+        let shape = this.tagShape(node.tag, iter.active, pendingShape && pendingPos == pos ? pendingShape : null)
         if (pendingPos == pos) for (let deco of pendingDeco) shape = applyDeco(shape, deco, node.tag)
         let wrappers = this.nodeWrappers(node.tag, iter.active, !shape.hasContent)
         let atom = !shape.hasContent
-        if (atom) walker.node(node!, shape, wrappers, pos + node.length > to ? to - pos : undefined)
-        else walker.enter(node!, shape as DecoElt, wrappers)
-        this.widgets(node.tag, WidgetPlace.Start, walker)
+        if (atom) {
+          walker.node(node!, shape, wrappers, pos + node.length > to ? to - pos : undefined)
+        } else {
+          walker.enter(node!, shape as DecoElt, wrappers)
+          this.widgets(node.tag, WidgetPlace.Start, walker)
+        }
         return !atom
       },
       leavePlot: tag => {
-        if (started) this.widgets(tag, WidgetPlace.End, walker)
+        if (started && !atomParent) this.widgets(tag, WidgetPlace.End, walker)
         else started = true
         walker.leave()
         this.widgets(tag, WidgetPlace.After, walker)
       }
     }
 
-    if (inclusiveStart) {
+    if (inclusiveStart && !atomParent) {
       let before = pos.nodeBefore
       if (before) this.widgets(before.tag, WidgetPlace.After, walker)
       else this.widgets(pos.parent.node.tag, WidgetPlace.Start, walker)
@@ -972,8 +981,10 @@ export class DecoIterator {
         let end = Math.min(to, atomParent.after), done = atomParent.after <= to
         walker.nodePart(atomParent.node, end - pos.pos, done)
         pos = pos.advance(end - pos.pos)
-        if (done) this.widgets(atomParent.node.tag, WidgetPlace.After, walker)
-        atomParent = undefined
+        if (done) {
+          this.widgets(atomParent.node.tag, WidgetPlace.After, walker)
+          atomParent = undefined
+        }
         while (iter.point && iter.from < end) iter.next()
       } else if (iter.point) {
         let value = iter.point
@@ -1009,9 +1020,8 @@ export class DecoIterator {
     this.pos = pos
   }
 
-  tagShape(tag: Node.Tag, active: Decoration.Range[]) {
-    let override = this.tagShapes.get(tag.type)
-    let shape = override ? override(tag) : baseTagShape(tag)
+  tagShape(tag: Node.Tag, active: Decoration.Range[], fromPoint: ShapeDecoration | null) {
+    let shape = fromPoint ? fromPoint.shape : this.tagShapes.get(tag.type)?.(tag) ?? baseTagShape(tag)
     if (tag.marks.length) shape = addMarkAttributes(this.markShapes, shape, tag)
     let add: string[] | undefined
     for (let src of this.globalAttrs) if (tag.type == src.type) {

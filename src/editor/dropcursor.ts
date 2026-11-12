@@ -3,10 +3,12 @@ import {Wordgard} from "./editor"
 import {getScale} from "./dom"
 
 const setDropCursorPos = Transaction.Effect.define<{pos: number, side: -1 | 1} | null>({
+  name: "setDropCursorPos",
   map(pos, mapping) { return pos == null ? null : {pos: mapping.mapPos(pos.pos), side: pos.side} }
 })
 
 const dropCursorPos = GardState.Field.define<{pos: number, side: -1 | 1} | null>({
+  name: "dropCursorPos",
   create() { return null },
   update(pos, tr) {
     if (pos != null) pos = {pos: tr.changes.mapPos(pos.pos), side: pos.side}

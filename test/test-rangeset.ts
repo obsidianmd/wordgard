@@ -87,8 +87,27 @@ describe("RangeSet", () => {
     ist(str(rs), "a@0-2 a@6-8")
   })
 
+  it("doesn't append to reused chunks", () => {
+    //let v = {inclusiveStart: false, inclusiveEnd: false, eq(other) { return other == this }}
+    let set = RangeSet.create([[V.a, 0, 1], [V.a, 3, 4]])
+    set.modify({add: [[V.b, 5, 6]]})
+    ist(str(set), "a@0-1 a@3-4")
+  })
+
   it("properly maps ranges at the end of the document", () => {
     ist(str(RangeSet.create([[V.a, 2, 4]]).map(ChangeSet.new([0, 1, 4, -1], []))), "a@3-5")
+  })
+
+  it("can map through changes that cut in the middle of a range", () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([2, -1, 2, 2, 2, -1], []))), "a@0-6")
+  })
+
+  it("can map through changes that cut the end of a range", () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([4, -1, 2, 2], []))), "a@0-6")
+  })
+
+  it("can map through changes that cut the start of a range", () => {
+    ist(str(RangeSet.create([[V.a, 0, 6]]).map(ChangeSet.new([2, 2, 4, -1], []))), "a@0-6")
   })
 
   it("can compare sets", () => {
@@ -115,5 +134,13 @@ describe("RangeSet", () => {
     let cursor = RangeSet.cursor([RangeSet.create([[V.a, 2, 4]]), RangeSet.create([[V.b, 9, 16]])])
     cursor.goto(9)
     ist(`${cursor.value!.name}@${cursor.from}-${cursor.to}`, "b@9-16")
+  })
+
+  it("can create sets with more than two layers", () => {
+    let set = RangeSet.create([[V.a, 1, 3], [V.b, 2, 20], [V.c, 2, 4]])
+    ist(str(set), "a@1-3 c@2-4 b@2-20")
+    let seen = []
+    for (let cursor = set.cursor(10); cursor.value; cursor.next()) seen.push(cursor.value.name)
+    ist(seen.join(), "b")
   })
 })

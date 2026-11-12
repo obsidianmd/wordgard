@@ -66,12 +66,15 @@ export namespace Menu {
         let src = Menu.Item.source.of(this as any)
         this.extension = this.parent ? [src, this.parent] : src
       }
+
+      /// @internal
+      toString() { return "Menu.Item" }
     }
 
     /// The facet used to add menu items to a configuration. Used by
     /// the items' extensions to register them, and by menu
     /// implementations to find available items.
-    export const source = GardState.Facet.define<Item>()
+    export const source = GardState.Facet.define<Item>({name: "menuItem"})
 
     /// A resolved menu consists of buttons, custom controls,
     /// submenus, and spacers, which are represented by the string
@@ -230,6 +233,9 @@ export namespace Menu {
     template(...content: (Template | Item | "...")[]) {
       return Template.new(this, content.length ? content : ["..."])
     }
+
+    /// @internal
+    toString() { return "Menu.Group" }
   }
 
   export namespace Group {

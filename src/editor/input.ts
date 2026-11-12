@@ -20,6 +20,7 @@ export const eventHandler = GardState.Facet.define<
   {event: string, handler: (event: Event, wg: Wordgard) => boolean | void},
   Record<string, ((event: Event, wg: Wordgard) => boolean | void)[]>
 >({
+  name: "eventHandler",
   combine: handlers => {
     let result: Record<string, ((event: Event, wg: Wordgard) => boolean | void)[]> = Object.create(null)
     for (let {event, handler} of handlers)
@@ -32,6 +33,7 @@ export const eventObserver = GardState.Facet.define<
   {event: string, observer: (event: Event, wg: Wordgard) => void},
   Record<string, ((event: Event, wg: Wordgard) => void)[]>
 >({
+  name: "eventObserver",
   combine: observers => {
     let result: Record<string, ((event: Event, wg: Wordgard) => void)[]> = Object.create(null)
     for (let {event, observer} of observers)
@@ -43,7 +45,7 @@ export const eventObserver = GardState.Facet.define<
 type InputEventData = {
   inputType: string
   data: string | null
-  domRange: {from: number, to: number} | null
+  domRange: {from: number, to: number, range: StaticRange} | null
 }
 
 // These are all covered by insertCompositionText in the post-2017
@@ -158,6 +160,7 @@ export class InputState {
     this.lastKeyCode = event.keyCode
     this.lastKeyTime = Date.now()
     this.shiftKey = event.keyCode == 16 || event.shiftKey
+    if (this.composing && event.isComposing === false) compositionEnd(this.wg)
     return false
   }
 
@@ -236,6 +239,8 @@ export class InputState {
 
   // Update the editor state for a beforeinput event.
   beforeInput(event: InputEvent, data: InputEventData) {
+    if (this.composing && event.isComposing === false) compositionEnd(this.wg)
+
     let type = event.inputType, range: {from: number, to: number} | undefined
     let {wg} = this, sel = wg.state.selection
     if (data.domRange) {
@@ -266,21 +271,11 @@ export class InputState {
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       Command.dispatch(wg, insertText, {from, to, insert, userEvent: "input.type"})
     } else if (type == "insertFromPaste") {
-      let {from, to} = this.unflushedSelection ? wg.state.selection.replacementRange : range!
-      let slice = readClipboard(wg.state, event.dataTransfer!, wg.state.doc.resolve(from), wg.inputState.shiftKey)
-      let isSel = from == wg.state.selection.replacementRange.from && to == wg.state.selection.replacementRange.to
-      if (isSel && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty)))
-        return
-      if (slice) {
-        wg.dispatch({
-          changes: {correct: {from, to, insert: slice, fit: true}, local: true},
-          selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
-          userEvent: "input.paste",
-          scrollIntoView: isSel
-        })
-      }
+      let transfer = event.dataTransfer!
+      doPaste(wg, getHTML(transfer), getText(transfer), this.unflushedSelection ? wg.state.selection : range!, null)
     } else if ((type == "insertReplacementText" || type == "insertFromYank")) {
-      let read = readClipboard(wg.state, event.dataTransfer!, wg.state.sel.head, true)
+      let transfer = event.dataTransfer!
+      let read = readClipboard(wg.state, getHTML(transfer), getText(transfer), wg.state.sel.head, true)
       let {from, to} = this.unflushedSelection ? wg.state.selection : range!
       let sel = wg.state.selection, touchesSel = from <= sel.to && to >= sel.from
       if (read) wg.dispatch({
@@ -378,7 +373,8 @@ export class InputState {
   }
 
   clearComposition() {
-    let comp = this.composing!
+    let comp = this.composing
+    if (!comp) return false
     this.composing = null
     this.compositionPendingKey = true
     this.compositionEndedAt = Date.now()
@@ -419,6 +415,14 @@ export class InputState {
   }
 }
 
+function getHTML(data: DataTransfer) {
+  return data.getData("text/html")
+}
+
+function getText(data: DataTransfer) {
+  return data.getData("text/plain") || data.getData("Text") || data.getData("text/uri-list").replace(/\r?\n/g, " ")
+}
+
 function isSingleChar(doc: Plot.Doc, from: number, to: number) {
   if (to > from + 10) return false
   let after = doc.resolve(from).nodeAfter
@@ -457,12 +461,38 @@ function computeHandlers(state: GardState) {
   return result
 }
 
+export function doPaste(
+  wg: Wordgard, html: string, text: string,
+  targetRange: {from: number, to: number} | null,
+  event: ClipboardEvent | null
+) {
+  let {from, to} = targetRange || wg.state.selection.replacementRange
+  let slice = readClipboard(wg.state, html, text, wg.state.doc.resolve(from), wg.inputState.shiftKey)
+  if (!targetRange) {
+    if (!event) {
+      event = new ClipboardEvent("paste", {clipboardData: new DataTransfer})
+      event.clipboardData!.setData("text/html", html)
+      event.clipboardData!.setData("text/plain", text)
+    }
+    if (wg.state.facet(pasteHandler).some(h => h(wg, event!, slice || Slice.empty, text, html)))
+      return
+  }
+  if (slice) {
+    wg.dispatch({
+      changes: {correct: {from, to, insert: slice, fit: true}, local: true},
+      selection: targetRange ? undefined : (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
+      userEvent: "input.paste",
+      scrollIntoView: !targetRange
+    })
+  }
+}
+
 // Key codes for modifier keys
 export const modifierCodes = [16, 17, 18, 20, 91, 92, 224, 225]
 
 const dragScrollMargin = 6
 
-export const mouseSelectionStyle = GardState.Facet.define<MakeSelectionStyle>()
+export const mouseSelectionStyle = GardState.Facet.define<MakeSelectionStyle>({name: "mouseSelectionStyle"})
 
 export type MakeSelectionStyle = (wg: Wordgard, event: MouseEvent) => Wordgard.MouseSelectionStyle | null
 
@@ -580,7 +610,7 @@ class MouseSelection {
   }
 }
 
-export const dragBehavior = GardState.Facet.define<(event: MouseEvent) => boolean>()
+export const dragBehavior = GardState.Facet.define<(event: MouseEvent) => boolean>({name: "dragBehavior"})
 
 function dragMovesSelection(wg: Wordgard, event: MouseEvent) {
   let facet = wg.state.facet(dragBehavior)
@@ -660,13 +690,13 @@ export const dropHandler = GardState.Facet.define<(
   pos: number,
   move: {from: number, to: number} | null,
   slice: Slice
-) => boolean>()
+) => boolean>({name: "dropHandler"})
 
 export const pasteHandler = GardState.Facet.define<(
   wg: Wordgard,
-  event: InputEvent,
-  slice: Slice
-) => boolean>()
+  event: ClipboardEvent,
+  slice: Slice, html: string, text: string
+) => boolean>({name: "pasteHandler"})
 
 function copy(wg: Wordgard, event: ClipboardEvent) {
   let {state} = wg
@@ -684,7 +714,7 @@ function copy(wg: Wordgard, event: ClipboardEvent) {
   return true
 }
 
-export const isFocusChange = Transaction.Annotation.define<boolean>()
+export const isFocusChange = Transaction.Annotation.define<boolean>("focusChange")
 
 function updateForFocusChange(wg: Wordgard) {
   setTimeout(() => {
@@ -827,9 +857,17 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
   copy,
   cut: copy,
 
+  paste(wg, event) {
+    let data = event.clipboardData
+    if (!data) return false
+    doPaste(wg, getHTML(data), getText(data), null, event)
+    return true
+  },
+
   drop(wg, event) {
-    if (!event.dataTransfer || wg.state.readOnly) return true
-    let slice = readClipboard(wg.state, event.dataTransfer, wg.state.sel.head, false)
+    let data = event.dataTransfer
+    if (!data || wg.state.readOnly) return true
+    let slice = readClipboard(wg.state, getHTML(data), getText(data), wg.state.sel.head, false)
     if (!slice) return false
 
     let dropPos = wg.posAtCoords({x: event.clientX, y: event.clientY}).pos
@@ -866,7 +904,7 @@ const baseHandlers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HT
     if (ranges.length) {
       let r = ranges[0], empty = r.collapsed
       let from = wg.inputState.getDOMPos(r.startContainer, r.startOffset)
-      data.domRange = {from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset)}
+      data.domRange = {from, to: empty ? from : wg.inputState.getDOMPos(r.endContainer, r.endOffset), range: r}
       editable = inEditableDOM(wg, r.startContainer) && (empty || inEditableDOM(wg, r.endContainer))
     }
     wg.inputState.beforeInput(event, wg.inputState.pendingInputEvent = data)

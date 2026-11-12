@@ -109,6 +109,7 @@ const languageStyles = Wordgard.styles({
 })
 
 const languageOptions = GardState.Facet.define<readonly string[], readonly string[]>({
+  name: "languageOptions",
   combine: input => {
     let options: string[] = []
     for (let arr of input) for (let opt of arr) if (!options.includes(opt)) options.push(opt)

@@ -84,6 +84,7 @@ type TooltipConfig = {
 }
 
 const tooltipConfig = GardState.Facet.define<Partial<TooltipConfig>, TooltipConfig>({
+  name: "tooltipConfig",
   combine: values => ({
     position: browser.ios ? "absolute" : values.find(conf => conf.position)?.position || "fixed",
     parent: values.find(conf => conf.parent)?.parent || null,
@@ -425,7 +426,7 @@ export interface Tooltip {
   clip?: boolean
 }
 
-const closeHoverTooltipEffect = Transaction.Effect.define<null>()
+const closeHoverTooltipEffect = Transaction.Effect.define<null>({name: "closeHover"})
 
 export namespace Tooltip {
   /// Creates an extension that configures tooltip behavior.
@@ -502,6 +503,7 @@ export namespace Tooltip {
 
   /// Facet to which an extension can add a value to show a tooltip.
   export const show = GardState.Facet.define<Tooltip | null>({
+    name: "tooltip",
     enables: [tooltipPlugin, styles]
   })
 
@@ -616,6 +618,7 @@ export namespace Tooltip {
 const noOffset = {x: 0, y: 0}
 
 const showHoverTooltip = GardState.Facet.define<readonly Tooltip[], readonly Tooltip[]>({
+  name: "showHoverTooltip",
   combine: inputs => inputs.reduce((a, i) => a.concat(i), [])
 })
 

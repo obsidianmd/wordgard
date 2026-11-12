@@ -38,6 +38,7 @@ class CollabState {
 }
 
 const collabConfig = GardState.Facet.define<collab.Config & {generatedID: string}, Required<collab.Config>>({
+  name: "collabConfig",
   combine(configs) {
     let combined = GardState.Facet.combineConfig(configs, {
       startVersion: 0,
@@ -53,6 +54,7 @@ const collabConfig = GardState.Facet.define<collab.Config & {generatedID: string
 })
 
 const collabReceive = Transaction.Effect.define<CollabState>({
+  name: "collabReceive",
   map(state, changes) {
     // This is used to make sure changes added to collab receive
     // transactions by extenders still get stored as unconfirmed.
@@ -62,6 +64,8 @@ const collabReceive = Transaction.Effect.define<CollabState>({
 })
 
 const collabField = GardState.Field.define({
+  name: "collab",
+
   create(state) {
     return new CollabState(state.facet(collabConfig).startVersion, state.doc, null, null)
   },

@@ -516,6 +516,7 @@ const theme = Wordgard.styles({
     fill: "currentColor",
     width: "var(--wg-menu-item-size)",
     height: "var(--wg-menu-item-size)",
+    display: "inline-block"
   },
 
   "wg-menu-spacer": {
@@ -561,6 +562,7 @@ const theme = Wordgard.styles({
 })
 
 const barTemplate = GardState.Facet.define<readonly Menu.Template[], readonly Menu.Template[]>({
+  name: "menuBarTemplate",
   combine: inputs => inputs.length ? inputs[0] : [Menu.Group.top.template()]
 })
 

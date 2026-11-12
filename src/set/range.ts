@@ -27,6 +27,7 @@ class SetBuilder<T extends RangeSet.Value> {
   spilled: SetBuilder<T> | null = null
   lastTo = -1
   lastFrom = -1
+  closed = false
 
   get next() {
     return this.spilled || (this.spilled = new SetBuilder<T>())
@@ -38,6 +39,7 @@ class SetBuilder<T extends RangeSet.Value> {
     } else {
       this.chunks.push(chunk)
       this.lastTo = chunk.end
+      this.closed = true
     }
   }
 
@@ -54,17 +56,21 @@ class SetBuilder<T extends RangeSet.Value> {
 
   addRange(value: T, from: number, to: number) {
     if (from >= to) throw new Error("Ranges cannot be empty")
-    ;(this.lastTo <= from ? this : this.next).addInner(value, from, to)
+    for (let target: SetBuilder<T> = this;; target = target.next) if (target.lastTo <= from) {
+      target.addInner(value, from, to)
+      break
+    }
   }
 
   addInner(value: T, from: number, to: number) {
     let chunk: Chunk<T> | undefined
-    if (this.chunks.length) {
+    if (this.chunks.length && !this.closed) {
       chunk = this.chunks[this.chunks.length - 1]
       if (chunk.value.length >= ChunkSize.Max) chunk = undefined
     }
     if (!chunk) {
       this.chunks.push(chunk = new Chunk(from, [], [], []))
+      this.closed = false
     }
     chunk.from.push(from - chunk.start)
     chunk.to.push(to - chunk.start)
@@ -147,13 +153,14 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
     let replI = 0, posA = 0, posB = 0
     let build = new SetBuilder<T>()
     for (let i = 0; i < sections.length;) {
-      let len = sections[i++], ins = sections[i++]
+      let len = sections[i++], ins = sections[i++], endA = posA + len
       if (ins < 0) {
         while (i < sections.length && sections[i + 1] < 0) {
           len += sections[i]
+          endA = posA + len
           i += 2
         }
-        let upto = i == sections.length ? 1e9 : posA + len, off = posB - posA
+        let upto = i == sections.length ? 1e9 : endA, off = posB - posA
         // Unchanged range. Copy over ranges and chunks entirely inside.
         while (cursor.cur) {
           let chunk = cursor.cur
@@ -178,11 +185,11 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
           let repl = replace[replI++]
           if (repl.add) build.add(repl.add)
         }
-        if (len) cursor.goto(posA + len - 1)
-        copyMappedUpto(cursor, posA + len, map, build, replace, replStartI)
+        if (len && cursor.to < endA) cursor.goto(endA - 1)
+        copyMappedUpto(cursor, endA, map, build, replace, replStartI)
         posB = endB
       }
-      posA += len
+      posA = endA
     }
     return build.finish(this.next && this.next.mapInner(sections, map, replace))
   }

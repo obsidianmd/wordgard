@@ -82,9 +82,9 @@ export class Pos {
 
   /// Get the parent plot at the given depth.
   parentAt(depth: number) {
-    if (depth > this.depth) throw new RangeError("Asking for parent deeper than position depth")
-    for (let d = this.depth, p = this.parent;; p = p.parent!, d--)
-      if (d == depth) return p
+    let d = this.depth
+    if (depth > d) throw new RangeError("Asking for parent deeper than position depth")
+    for (let p = this.parent;; p = p.parent!) if (d-- == depth) return p
   }
 
   /// Returns true if this position is right at the start of the given
