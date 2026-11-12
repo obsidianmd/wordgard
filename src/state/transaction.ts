@@ -1,6 +1,7 @@
 import {Plot, ChangeSet} from "wordgard/doc"
 import type {GardState} from "./state"
 import {GardSelection} from "./selection"
+import {debugString} from "./debug"
 
 /// Changes to the editor state are grouped into transactions.
 /// Typically, a user action creates a single transaction, which may
@@ -23,7 +24,7 @@ export class Transaction {
     readonly selection: GardSelection | undefined,
     /// The effects contained in this transaction.
     readonly effects: readonly Transaction.Effect<any>[],
-    /// @internal
+    /// The annotations on this transaction.
     readonly annotations: readonly Transaction.Annotation<any>[],
     /// Whether the selection should be scrolled into view after this
     /// transaction is dispatched.
@@ -211,26 +212,38 @@ export namespace Transaction {
     ) {}
 
     /// Define a new type of annotation.
-    static define<T>() { return new Transaction.Annotation.Type<T>() }
+    static define<T>(name?: string) { return Transaction.Annotation.Type.new<T>(name || null) }
 
     // This is just to get less sloppy typing (where StateEffect is a subtype of Annotation)
     declare private _isAnnotation: true
+
+    /// @internal
+    toString() { return `${this.type}(${debugString(this.value)})` }
   }
 
   export namespace Annotation {
     /// Marker that identifies a type of {@link Transaction.Annotation
     /// annotation}.
     export class Type<T> {
+      private constructor(
+        /// This type's debug name.
+        readonly name: string | null
+      ) {}
+
+      /// @internal
+      static new<T>(name: string | null) { return new Type<T>(name) }
+
       /// Create an instance of this annotation.
       of(value: T): Transaction.Annotation<T> { return new Transaction.Annotation(this, value) }
+
+      /// @internal
+      toString() { return "Annotation" + (this.name ? ":" + this.name : "") }
     }
   }
 
-  export declare const foo: number
-
   /// Annotation used to store transaction timestamps. Automatically
   /// added to every transaction, holding `Date.now()`.
-  export const time = Transaction.Annotation.define<number>()
+  export const time = Transaction.Annotation.define<number>("time")
 
   /// Annotation used to associate a transaction with a user interface
   /// event. Holds a string identifying the event, using a
@@ -264,21 +277,21 @@ export namespace Transaction {
   ///
   /// Use {@link Transaction.isUserEvent `isUserEvent`} to check
   /// whether the annotation matches a given event.
-  export const userEvent = Annotation.define<string>()
+  export const userEvent = Annotation.define<string>("userEvent")
 
   /// Annotation indicating whether a transaction should be added to
   /// the undo history or not.
-  export const addToHistory = Annotation.define<boolean>()
+  export const addToHistory = Annotation.define<boolean>("addToHistory")
 
   /// Annotation indicating (when present and true) that a transaction
   /// represents a change made by some other actor, not the user. This
   /// is used, for example, to tag other people's changes in
   /// collaborative editing.
-  export const remote = Annotation.define<boolean>()
+  export const remote = Annotation.define<boolean>("remote")
 
   /// A flag set on transactions created by a {@link
   /// Transaction.appender transaction appender}.
-  export const appended = Annotation.define<boolean>()
+  export const appended = Annotation.define<boolean>("appended")
 
   /// Transaction effects can be used to represent additional effects
   /// associated with a {@link Transaction.effects transaction}. They
@@ -311,8 +324,11 @@ export namespace Transaction {
     /// Transaction.Effect.map mapping} to indicate that an effect is
     /// removed.
     static define<Value = null>(spec: Transaction.Effect.Spec<Value> = {}): Transaction.Effect.Type<Value> {
-      return new Transaction.Effect.Type(spec.map || (v => v))
+      return Effect.Type.new<Value>(spec.map || (v => v), spec.name || null)
     }
+
+    /// @internal
+    toString() { return `${this.type}(${debugString(this.value)})` }
   }
 
   export namespace Effect {
@@ -330,23 +346,34 @@ export namespace Transaction {
     /// A type of state effect. Defined with {@link
     /// Transaction.Effect.define}.
     export class Type<Value> {
-      /// @internal
-      constructor(
+      private constructor(
         // The `any` types in these function types are there to work
         // around TypeScript issue #37631, where the type guard on
         // `StateEffect.is` mysteriously stops working when these properly
         // have type `Value`.
         /// @internal
-        readonly map: (value: any, mapping: ChangeSet) => any | undefined
+        readonly map: (value: any, mapping: ChangeSet) => any | undefined,
+        /// The debug name of this effect.
+        readonly name: string | null
       ) {}
+
+      /// @internal
+      static new<Value>(map: (value: any, mapping: ChangeSet) => any | undefined, name: string | null) {
+        return new Type<Value>(map, name)
+      }
 
       /// Create an {@link Transaction.Effect effect} instance of this
       /// type.
       of(value: Value): Transaction.Effect<Value> { return new Transaction.Effect(this, value) }
+
+      /// @internal
+      toString() { return "Effect" + (this.name ? ":" + this.name : "") }
     }
 
     /// Options passed when defining an effect.
     export interface Spec<Value> {
+      /// An optional debug name to assign to this effect.
+      name?: string
       /// Provides a way to map an effect like this through a position
       /// mapping. When not given, the effects will simply not be mapped.
       /// When the function returns `undefined`, that means the mapping

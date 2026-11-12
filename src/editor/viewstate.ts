@@ -3,7 +3,10 @@ import {GardState, Transaction} from "wordgard/state"
 import {UpdateFlag} from "./editor"
 import {Wordgard} from "./editor"
 
-export const scrollIntoView = Transaction.Effect.define<ScrollTarget>({map: (t, ch) => t.map(ch)})
+export const scrollIntoView = Transaction.Effect.define<ScrollTarget>({
+  name: "scrollIntoView",
+  map: (t, ch) => t.map(ch)
+})
 
 const selectionScrollSpec: Required<Wordgard.ScrollSpec> = {
   x: "nearest",

@@ -8,7 +8,7 @@ export function eqArray<T extends {eq(b: T): boolean}>(a?: readonly T[] | null, 
   return true
 }
 
-export const exceptionSink = GardState.Facet.define<(exception: any) => void>()
+export const exceptionSink = GardState.Facet.define<(exception: any) => void>({name: "exceptionSink"})
 
 export function logException(state: GardState, exception: any, context?: string) {
   let handler = state.facet(exceptionSink)

@@ -85,7 +85,7 @@ function scanChanges(changes: ChangeSet, doc: Plot.Doc, corrections: readonly Co
   return plan
 }
 
-const corrections = GardState.Facet.define<Correction>()
+const corrections = GardState.Facet.define<Correction>({name: "corrections"})
 
 const planCache = new WeakMap<Transaction, PlanElt[]>()
 
@@ -189,4 +189,7 @@ export class Correction {
     }
     return changed.length ? ChangeSet.create(doc, changed) : null
   }
+
+  /// @internal
+  toString() { return `Correction(${Node.queryToString(this.query)})` }
 }

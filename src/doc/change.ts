@@ -64,12 +64,9 @@ class Builder implements Pos.Walker, SliceWalker {
 
 type Modification = {add: Mark} | {remove: Mark}
 
-function isAdd(m: Modification): m is {add: Mark} { return !!(m as any).add }
-function isRemove(m: Modification): m is {remove: Mark} { return !!(m as any).remove }
-
 function applyModifications(modifications: readonly Modification[], marks: Mark.Set, type: Node.Type) {
   for (const m of modifications) {
-    if (isAdd(m)) {
+    if ("add" in m) {
       marks = m.add.addToSet(marks)
     } else {
       marks = m.remove.removeFromSet(marks)
@@ -79,7 +76,7 @@ function applyModifications(modifications: readonly Modification[], marks: Mark.
 }
 
 function modificationToJSON(m: Modification): ModificationJSON {
-  return isAdd(m) ? {add: m.add.name, value: m.add.value} : {remove: m.remove.name, value: m.remove.value}
+  return "add" in m ? {add: m.add.name, value: m.add.value} : {remove: m.remove.name, value: m.remove.value}
 }
 
 function modificationFromJSON(schema: Schema, json: ModificationJSON): Modification {
@@ -101,7 +98,7 @@ function compareModifications(a: readonly Modification[], b: readonly Modificati
 }
 
 function compareModification(a: Modification, b: Modification) {
-  return isAdd(a) ? isAdd(b) && a.add.eq(b.add) : isRemove(b) && a.remove.eq(b.remove)
+  return "add" in a ? "add" in b && a.add.eq(b.add) : "remove" in b && a.remove.eq(b.remove)
 }
 
 function isNatNum(value: any): value is number {
@@ -478,7 +475,7 @@ export class ChangeSet {
     return new ChangeSet(sections, data)
   }
 
-  /// Clip the set to only a sub-region. This can fail, if there are
+  /// Clip the set to only a sub-region. This can fail if there are
   /// replacements across the region's sides, in which case the
   /// method returns null
   clip(from: number, to: number): ChangeSet | null {
@@ -486,10 +483,10 @@ export class ChangeSet {
     for (let i = 0, pos = 0; i < this.sections.length && pos <= to;) {
       let value = this.data[i >> 1], len = this.sections[i++], ins = this.sections[i++]
       let end = pos + len
-      if (ins > 0) {
-        if (pos >= from && end <= to) addSection(sections, data, end - pos, ins, value)
-        else if (end > from && pos < from) return null
-      } else if (pos < to && end > from) {
+      if (pos >= from && end <= to) {
+        addSection(sections, data, len, ins, value)
+      } else if (end > from && pos < to) {
+        if (ins >= 0) return null
         addSection(sections, data, Math.min(end, to) - Math.max(pos, from), ins, value)
       }
       pos = end
@@ -518,7 +515,7 @@ export class ChangeSet {
         text += data
       } else if (data) {
         text += `[${(data as readonly Modification[]).map(mod => {
-          return `${isAdd(mod) ? "+" + mod.add : "-" + mod.remove}`
+          return `${"add" in mod ? "+" + mod.add : "-" + mod.remove}`
         })}]`
       }
       if (text) result += `${result ? "," : ""}${pos}${len ? `-${pos + len}` : ""}${text}`
@@ -627,6 +624,40 @@ class ChangeSetBuilder {
   sections: number[] = []
   data: SectionData[] = []
   pos = 0
+
+  addSection(from: number, to: number, ins: number, value: SectionData) {
+    if (from >= this.pos) {
+      addSection(this.sections, this.data, from - this.pos, -1, null)
+      addSection(this.sections, this.data, to - from, ins, value)
+      this.pos = to
+      return true
+    }
+    if (this.sections.length && this.sections[0] > to && this.sections[1] == -1) {
+      // Fits into initial kept section
+      this.spliceSection(0, from, to, ins, value)
+      return true
+    }
+    // Scan back to see if there's another kept section this would fit in
+    for (let pos = this.pos, i = this.sections.length; i > 2 && pos > to;) {
+      let nextIns = this.sections[--i], nextLen = this.sections[--i]
+      let start = pos - nextLen
+      if (nextIns == -1 && start < from) {
+        this.spliceSection(i, from - start, to - start, ins, value)
+        return true
+      }
+      pos = start
+    }
+    return false
+  }
+
+  spliceSection(i: number, from: number, to: number, ins: number, value: SectionData) {
+    let sections: number[] = [], data: SectionData[] = []
+    addSection(sections, data, from, -1, null)
+    addSection(sections, data, to - from, ins, value)
+    addSection(sections, data, this.sections[i] - to, -1, null)
+    this.sections.splice(i, 2, ...sections)
+    this.data.splice(i >> 1, 1, ...data)
+  }
 }
 
 function sliceLen(tokens: readonly Token[]) {
@@ -649,13 +680,11 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
     accum = accum ? accum.compose(transform(set, accum, doc, false, false).set) : set
   }
   let section = (from: number, to: number, ins: number, value: SectionData) => {
-    if (!cur || from < cur.pos) {
+    if (!cur?.addSection(from, to, ins, value)) {
       flush()
       cur = new ChangeSetBuilder(doc.length)
+      cur.addSection(from, to, ins, value)
     }
-    if (from > cur.pos) addSection(cur.sections, cur.data, from - cur.pos, -1, null)
-    addSection(cur.sections, cur.data, to - from, ins, value)
-    cur.pos = to
   }
 
   let build = (spec: ChangeSet.Spec) => {
@@ -698,15 +727,16 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
         if (remove) {
           let mods: Modification[] = [{remove}]
           markableSections(doc, from, to, remove.type.spanning, (node, from, to) => {
-            const has = remove.isInSet(node.tag.marks)
-            if (!has || !doc.schema.markAllowed(remove.type, node.type)) return false
-            let modsHere = mods
             if (remove.type.set) {
-              let left = subtractSet(remove.value as any[], has.value as any[], remove.type.set!)
+              let has = remove.type.isInSet(node.tag.marks)
+              if (!has) return false
+              let left = (remove.value as any[]).filter(a => (has.value as any[]).some(b => remove.type.set!(a, b) == 0))
               if (!left.length) return false
-              modsHere = [{remove: remove.type.of(left)}]
+              section(from, to, -2, left.length == (remove.value as any).length ? mods : [{remove: remove.type.of(left)}])
+            } else {
+              if (!remove.isInSet(node.tag.marks)) return false
+              section(from, to, -2, mods)
             }
-            section(from, to, -2, modsHere)
             return true
           })
         }
@@ -852,16 +882,16 @@ function filterMods(mods: null | readonly Modification[], against: null | readon
 }
 
 function modCancels(mod: Modification, other: Modification) {
-  if (isAdd(other)) {
-    return isAdd(mod) ? mod.add.type == other.add.type && !mod.add.type.set : mod.remove.eq(other.add)
+  if ("add" in other) {
+    return "add" in mod ? mod.add.type == other.add.type && !mod.add.type.set : mod.remove.eq(other.add)
   } else {
-    return isAdd(mod) && mod.add.eq(isAdd(other) ? other.add : other.remove)
+    return "add" in mod && mod.add.eq(other.remove)
   }
 }
 
 function invertMods(mods: readonly Modification[], target: Node.Tag): readonly Modification[] {
   return mods.map(mod => {
-    if (isRemove(mod)) return {add: mod.remove}
+    if ("remove" in mod) return {add: mod.remove}
     if (!mod.add.type.set) {
       let existed = mod.add.type.isInSet(target.marks)
       if (existed) return {add: existed}

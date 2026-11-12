@@ -7,6 +7,7 @@ import {Command, moveByUnit, moveByLine, moveByWord, moveToLineSide} from "wordg
 import {TableMap} from "./tablemap"
 
 const cellSelectionDeco = GardState.Field.define<Decoration.Point.Set>({
+  name: "cellSelectionDeco",
   create: getCellDeco,
   update: (deco, tr) => {
     return tr.docChanged || tr.selection ? getCellDeco(tr.state) : deco

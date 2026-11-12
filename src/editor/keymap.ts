@@ -56,6 +56,9 @@ export class KeyBinding {
 
   /// Define a binding.
   static of(spec: KeyBinding.Spec) { return new KeyBinding(spec) }
+
+  /// @internal
+  toString() { return `KeyBinding:${this.spec.key || this.spec.char || "??"}` }
 }
 
 export namespace KeyBinding {
@@ -116,6 +119,7 @@ export namespace KeyBinding {
   /// are called. When a handler has returned `true` for a given key,
   /// no further handlers are called.
   export const source = GardState.Facet.define<KeyBinding>({
+    name: "keyBinding",
     enables: keymap
   })
 
@@ -123,6 +127,7 @@ export namespace KeyBinding {
   /// is automatically active. You can configure this to false if you
   /// want to completely replace it.
   export const useDefaultKeymap = GardState.Facet.define<boolean, boolean>({
+    name: "useDefaultKeymap",
     combine: input => input.length ? input[0] : true
   })
 
@@ -334,7 +339,7 @@ type Keymap = NormalizedBinding[]
 const keymapCache = new WeakMap<readonly KeyBinding[], Keymap>()
 
 function getKeymap(state: GardState) {
-  let bindings = state.field(KeyBinding.keymap)
+  let bindings = state.field(KeyBinding.keymap, false)
   let found = keymapCache.get(bindings)
   if (!found)
     keymapCache.set(bindings, found = buildKeymap(bindings, currentPlatform),)
@@ -344,7 +349,7 @@ function getKeymap(state: GardState) {
 const lookupCache = new WeakMap<readonly KeyBinding[], Map<string | PhraseSet.Ref, string>>()
 
 function getDescMap(state: GardState) {
-  let bindings = state.field(KeyBinding.keymap)
+  let bindings = state.field(KeyBinding.keymap, false)
   let map = lookupCache.get(bindings)
   if (!map) {
     lookupCache.set(bindings, map = new Map)

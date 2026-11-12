@@ -1,4 +1,4 @@
-import {Command, liftEmptyBlock, insertLineBreak, enter,
+import {Command, liftEmptyBlock, liftTextblock, insertLineBreak, enter,
         splitTextblock, deleteSelection, joinBackward, joinForward, joinListItems,
         deleteBackward, deleteForward, setTextblockType,
         wrapBlock, unwrapBlock, toggleList, toggleMark} from "wordgard/command"
@@ -166,6 +166,36 @@ describe("liftEmptyBlock", () => {
 
   it("can lift blocks with an inline node", () => {
     test(doc(blockquote(p(sp(0)))), liftEmptyBlock, doc(p(sp(0))))
+  })
+
+  it("will split continued list items", () => {
+    test(doc(ul(li(p("one"), p(0)), li(p("two")))), liftEmptyBlock, doc(ul(li(p("one")), li(p(0)), li(p("two")))))
+  })
+})
+
+describe("liftEmptyBlock", () => {
+  it("can lift a paragraph out of a quote", () => {
+    test(doc(blockquote(p(0, "..."))), liftTextblock, doc(p(0, "...")))
+  })
+
+  it("can leave sibling nodes in parent", () => {
+    test(doc(blockquote(p("a"), p(0, "b"), p("c"))), liftTextblock, doc(blockquote(p("a")), p(0, "b"), blockquote(p("c"))))
+  })
+
+  it("can lift out of multiple parents", () => {
+    test(doc(ul(li(p(0, "x")))), liftTextblock, doc(p(0, "x")))
+  })
+
+  it("can lift out of multiple parents and leave siblings", () => {
+    test(doc(ul(li(p("a")), li(p(0, "b")), li(p("c")))), liftTextblock, doc(ul(li(p("a"))), p(0, "b"), ul(li(p("c")))))
+  })
+
+  it("returns false when unable to lift", () => {
+    test(doc(p(0, "a")), liftTextblock)
+  })
+
+  it("returns false when not at the start", () => {
+    test(doc(blockquote(p("a", 0))), liftTextblock)
   })
 })
 

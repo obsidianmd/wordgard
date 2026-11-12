@@ -9,7 +9,7 @@ const placeholderWidget = Widget.define<() => Element | Text>({
   }
 })
 
-const placeholderShape = GardState.Facet.define<() => Element | Text>()
+const placeholderShape = GardState.Facet.define<() => Element | Text>({name: "placeholderShape"})
 
 function showPlaceholder(state: GardState): Decoration.Point.Set {
   let pos = -1
@@ -22,6 +22,8 @@ function showPlaceholder(state: GardState): Decoration.Point.Set {
 }
 
 const placeholderField = GardState.Field.define<Decoration.Point.Set>({
+  name: "placeholder",
+
   create(state) {
     return showPlaceholder(state)
   },

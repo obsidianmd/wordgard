@@ -1,7 +1,7 @@
 import ist from "ist"
 import {Plot, Mark, Leaf, Node, Slice, ChangeSet, type Token, Schema} from "wordgard/doc"
 import {CodeBlockLanguage, Emphasis, Strong, Link, ImageAlt,
-        Table, TableRow, BlockCell} from "wordgard/types"
+        Table, TableRow, BlockCell, Doc, Paragraph} from "wordgard/types"
 import {permute, open, close, slice, rDoc, rChange} from "./generate.ts"
 import {basicBuilders, basicSchema, builder, tag, maybeTag, eq} from "./schema.ts"
 const {doc, p, h1, blockquote, ol, ul, li, pre, preLang, hr, img, imgAlt, $img, a, em, strong,
@@ -90,6 +90,26 @@ describe("ChangeSet", () => {
 
     it("only adds marks where appropriate", () => {
       testApply(doc(0, p("one"), 1), [{add: Strong}], doc(p(strong("one"))))
+    })
+
+    const IDs = Mark.Type.define<readonly string[]>("IDs", {
+      set: {compare: (a, b) => a < b ? -1 : a > b ? 1 : 0},
+      shape: {attribute: "data-tags", value: v => v.join(" ")}
+    })
+    let idSchema = Schema.define([Doc, Paragraph, IDs]), ids = builder(IDs), idDoc = builder(idSchema)
+
+    it("can add to a set mark", () => {
+      Plot.Doc.noValidate(() => {
+        testApply(idDoc(p(0, "one", ids(["a"], "two"), 1)), [{add: IDs.of(["b", "c"])}],
+                  idDoc(p(0, ids(["b", "c"], "one"), ids(["a", "b", "c"], "two"), 1)))
+      })
+    })
+
+    it("can remove from a set mark", () => {
+      Plot.Doc.noValidate(() => {
+        testApply(idDoc(p(0, ids(["a"], "one"), ids(["a", "b"], "two"), 1)), [{remove: IDs.of(["a", "c"])}],
+                  idDoc(p(0, "one", ids(["b"], "two"), 1)))
+      })
     })
 
     it("can change node marks", () => {
@@ -580,6 +600,24 @@ describe("ChangeSet", () => {
         let d = rDoc(20), ch = rChange(d, 5)
         ist(ChangeSet.fromJSON(d.schema, ch.toJSON()), ch, eq)
       }
+    })
+  })
+
+  describe("clip", () => {
+    it("cuts off parts outside the range", () => {
+      ist(mk(doc(p(0, "a", 1, "bc"), p("d", 2, "e", 3, "f"), p("ghi", 4)), [[], [], ["!"]]).clip(6, 9)!.sections.join(),
+          "1,-1,1,0,1,-1")
+    })
+
+    it("won't clip changes that overlap the boundaries", () => {
+      ist(mk(doc(p(0, "abc"), p("d", 1, "ef")), [[]]).clip(6, 9), null)
+      ist(mk(doc(p("d", 0, "ef"), p(1)), [["/"]]).clip(1, 4), null)
+      ist(mk(doc(p("abc", 0), p("def"), p(1, "ghi")), [[]]).clip(6, 9), null)
+    })
+
+    it("can clip updated ranges", () => {
+      ist(mk(doc(p(0, "abcdef", 1)), [{add: Strong}]).clip(3, 5)!.sections.join(),
+          "2,-2")
     })
   })
 })
