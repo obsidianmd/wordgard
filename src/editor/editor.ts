@@ -999,6 +999,9 @@ export namespace Wordgard {
         if (value) observer(event as HTMLElementEventMap[Event], wg, value)
       }})
     }
+
+    /// @internal
+    toString() { return "Plugin" }
   }
 
   export namespace Plugin {
