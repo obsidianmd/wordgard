@@ -157,6 +157,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
       if (ins < 0) {
         while (i < sections.length && sections[i + 1] < 0) {
           len += sections[i]
+          endA = posA + len
           i += 2
         }
         let upto = i == sections.length ? 1e9 : endA, off = posB - posA
