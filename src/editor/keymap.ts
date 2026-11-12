@@ -349,7 +349,7 @@ function getKeymap(state: GardState) {
 const lookupCache = new WeakMap<readonly KeyBinding[], Map<string | PhraseSet.Ref, string>>()
 
 function getDescMap(state: GardState) {
-  let bindings = state.field(KeyBinding.keymap)
+  let bindings = state.field(KeyBinding.keymap, false)
   let map = lookupCache.get(bindings)
   if (!map) {
     lookupCache.set(bindings, map = new Map)
