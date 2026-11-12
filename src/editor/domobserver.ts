@@ -1,7 +1,8 @@
 import {GardSelection} from "wordgard/state"
 import browser from "./browser"
 import {Wordgard} from "./editor"
-import {DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange, isEquivalentPosition} from "./dom"
+import {DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange,
+        isEquivalentPosition, isElt} from "./dom"
 import {Tile, WidgetTile} from "./tile"
 import {readDOMSelection, selectionFromTouch} from "./selection"
 import {addRange} from "./changes"
@@ -68,13 +69,13 @@ export class DOMObserver {
   connect() {
     this.observer.observe(this.dom, observeOptions)
     this.resizeScroll?.observe(this.dom)
-    for (let dom = this.dom as any; dom;) {
-      if (dom.nodeType == 1) {
-        this.scrollTargets.push(dom)
+    for (let dom: DOMNode | null = this.dom; dom;) {
+      if (isElt(dom)) {
+        this.scrollTargets.push(dom as HTMLElement)
         dom.addEventListener("scroll", this.onScroll)
-        dom = dom.assignedSlot || dom.parentNode
+        dom = (dom as any).assignedSlot || dom.parentNode
       } else if (dom.nodeType == 11) { // Shadow root
-        dom = dom.host
+        dom = (dom as ShadowRoot).host
       } else {
         break
       }

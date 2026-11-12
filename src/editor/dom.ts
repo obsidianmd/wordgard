@@ -6,6 +6,9 @@ declare global {
   interface Node { wgTile?: Tile }
 }
 
+export function isElt(node: DOMNode): node is Element { return node.nodeType == 1 }
+export function isText(node: DOMNode): node is Text { return node.nodeType == 3 }
+
 export function getSelection(root: DocumentOrShadowRoot): Selection | null {
   let target
   // Browsers differ on whether shadow roots have a getSelection
@@ -55,13 +58,13 @@ export function rmDOM(dom: ChildNode): ChildNode | null {
 export function isBlockElement(node: Node): boolean {
   let tile = node.wgTile
   if (tile?.tag) return tile.tag.type.isBlock
-  return node.nodeType == 1 && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|DD|DT|H\d|SECTION|PRE)$/.test(node.nodeName)
+  return isElt(node) && /^(DIV|P|LI|UL|OL|BLOCKQUOTE|DD|DT|H\d|SECTION|PRE)$/.test(node.nodeName)
 }
 
 export function isBlocking(node: Node) {
   let tile = node.wgTile
   if (tile) return !tile.isText && (tile.isNodeOuter || (tile.isPoint && (tile.flags & TileFlag.PointSide)))
-  return node.nodeType == 1 && (node as HTMLElement).contentEditable == "false"
+  return isElt(node) && (node as HTMLElement).contentEditable == "false"
 }
 
 function scanFor(node: Node, off: number, targetNode: Node, targetOff: number, dir: -1 | 1): boolean {
@@ -70,10 +73,10 @@ function scanFor(node: Node, off: number, targetNode: Node, targetOff: number, d
     if (off == (dir < 0 ? 0 : maxOffset(node))) {
       if (isBlockElement(node)) return false
       let parent = node.parentNode
-      if (!parent || parent.nodeType != 1) return false
+      if (!parent || !isElt(parent)) return false
       off = domIndex(node) + (dir < 0 ? 0 : 1)
       node = parent
-    } else if (node.nodeType == 1) {
+    } else if (isElt(node)) {
       node = node.childNodes[off + (dir < 0 ? -1 : 0)]
       if (isBlocking(node)) return false
       off = dir < 0 ? maxOffset(node) : 0
@@ -84,7 +87,7 @@ function scanFor(node: Node, off: number, targetNode: Node, targetOff: number, d
 }
 
 export function maxOffset(node: Node): number {
-  return node.nodeType == 3 ? node.nodeValue!.length : node.childNodes.length
+  return isText(node) ? node.nodeValue!.length : node.childNodes.length
 }
 
 export function windowRect(win: Window): DOMRect {
@@ -105,8 +108,8 @@ export function scrollRectIntoView(dom: HTMLElement, rect: DOMRect, side: -1 | 1
                                    xMargin: number, yMargin: number, ltr: boolean) {
   let doc = dom.ownerDocument!, win = doc.defaultView || window
 
-  for (let cur: any = dom, stop = false; cur && !stop;) {
-    if (cur.nodeType == 1) { // Element
+  for (let cur: DOMNode | null = dom, stop = false; cur && !stop;) {
+    if (isElt(cur)) { // Element
       let bounding: DOMRect, top = cur == doc.body
       let scaleX = 1, scaleY = 1
       if (top) {
@@ -118,7 +121,7 @@ export function scrollRectIntoView(dom: HTMLElement, rect: DOMRect, side: -1 | 1
           continue
         }
         let rect = cur.getBoundingClientRect()
-        ;({scaleX, scaleY} = getScale(cur, rect))
+        ;({scaleX, scaleY} = getScale(cur as HTMLElement, rect))
         // Make sure scrollbar width isn't included in the rectangle
         bounding = new DOMRect(rect.left, rect.top, cur.clientWidth * scaleX, cur.clientHeight * scaleY)
       }
@@ -183,7 +186,7 @@ export function scrollRectIntoView(dom: HTMLElement, rect: DOMRect, side: -1 | 1
       if (top) break
       cur = cur.assignedSlot || cur.parentNode
     } else if (cur.nodeType == 11) { // A shadow root
-      cur = cur.host
+      cur = (cur as ShadowRoot).host
     } else {
       break
     }
@@ -191,11 +194,11 @@ export function scrollRectIntoView(dom: HTMLElement, rect: DOMRect, side: -1 | 1
 }
 
 export function scrollableParents(dom: HTMLElement) {
-  let doc = dom.ownerDocument, x: HTMLElement | undefined, y: HTMLElement | undefined
-  for (let cur = dom.parentNode as HTMLElement | null; cur;) {
+  let doc = dom.ownerDocument, x: Element | undefined, y: Element | undefined
+  for (let cur = dom.parentNode; cur;) {
     if (cur == doc.body || (x && y)) {
       break
-    } else if (cur.nodeType == 1) {
+    } else if (isElt(cur)) {
       if (!y && cur.scrollHeight > cur.clientHeight) y = cur
       if (!x && cur.scrollWidth > cur.clientWidth) x = cur
       cur = cur.assignedSlot || cur.parentNode as HTMLElement | null
@@ -257,8 +260,8 @@ function nonZero(rect: DOMRect) {
 }
 
 export function singleRect(target: Element | Text | Range, bias: -1 | 1, preferWide = false): DOMRect {
-  if ((target as Text).nodeType == 3)
-    target = textRange(target as Text, 0, (target as Text).nodeValue!.length)
+  if ("nodeType" in target && isText(target))
+    target = textRange(target, 0, target.nodeValue!.length)
   let rects = (target as Element | Range).getClientRects()
   for (let i = bias < 0 ? 0 : rects.length - 1; bias < 0 ? i < rects.length : i >= 0; i -= bias) {
     let rect = rects[i]
@@ -278,9 +281,9 @@ export function getRoot(node: Node | null | undefined): DocumentOrShadowRoot | n
 
 export function textNodeBefore(startNode: Node, startOffset: number): Text | null {
   for (let node = startNode, offset = startOffset;;) {
-    if (node.nodeType == 3 && offset > 0) {
-      return node as Text
-    } else if (node.nodeType == 1 && offset > 0) {
+    if (offset > 0 && isText(node)) {
+      return node
+    } else if (offset > 0 && isElt(node)) {
       if ((node as HTMLElement).contentEditable == "false") return null
       node = node.childNodes[offset - 1]
       offset = maxOffset(node)
@@ -295,9 +298,9 @@ export function textNodeBefore(startNode: Node, startOffset: number): Text | nul
 
 export function textNodeAfter(startNode: Node, startOffset: number): Text | null {
   for (let node = startNode, offset = startOffset;;) {
-    if (node.nodeType == 3 && offset < node.nodeValue!.length) {
-      return node as Text
-    } else if (node.nodeType == 1 && offset < node.childNodes.length) {
+    if (isText(node) && offset < node.nodeValue!.length) {
+      return node
+    } else if (isElt(node) && offset < node.childNodes.length) {
       if ((node as HTMLElement).contentEditable == "false") return null
       node = node.childNodes[offset]
       offset = 0
