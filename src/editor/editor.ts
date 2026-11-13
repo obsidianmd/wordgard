@@ -283,7 +283,8 @@ export class Wordgard {
     }
     this.docTile = prevDocTile.update(update.state, changes, this, composition)
 
-    if ((composition?.wrapCursor || !composition && (prevDocTile != this.docTile || update.selectionSet)) && this.hasFocus)
+    if ((composition?.wrapCursor || !composition && (prevDocTile != this.docTile ||
+         update.selectionSet || this.observer.selectionChanged)) && this.hasFocus)
       setDOMSelection(this)
     this.observer.clear()
     if (this.docTile != prevDocTile) for (let plugin of this.plugins) plugin.docUpdate(this)
