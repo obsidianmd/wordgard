@@ -322,18 +322,18 @@ class PointCursor<T extends PointSet.Value> implements Set.Cursor<T> {
 
   goto(pos: number, side: number) {
     let diff = pos - this.from || side - this.side
-    if (diff < 0) {
-      this.chunkI = this.i = 0
-    } else if (diff == 0 && this.cur) {
+    if (diff == 0 && this.cur) {
       // Rewind over points directly before the current position, if necessary
       for (;; this.i--) {
         if (!this.i) {
           this.chunkI = 0
           break
         }
-        if ((pos - this.cur.pos[this.i - 1] || side - this.cur.value[this.i - 1].side) < 0)
+        if ((pos - this.cur.pos[this.i - 1] || side - this.cur.value[this.i - 1].side) <= 0)
           break
       }
+    } else if (diff <= 0) {
+      this.chunkI = this.i = 0
     }
     for (let first = true;;) {
       if (this.chunkI == this.set.chunks.length) {
