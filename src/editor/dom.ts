@@ -312,3 +312,21 @@ export function textNodeAfter(startNode: Node, startOffset: number): Text | null
     }
   }
 }
+
+export function atElementStart(doc: HTMLElement, selection: SelectionRange) {
+  let node = selection.focusNode, offset = selection.focusOffset
+  if (!node || selection.anchorNode != node || selection.anchorOffset != offset) return false
+  for (;;) {
+    if (offset) {
+      if (!isElt(node)) return false
+      let prev: Node = node.childNodes[offset - 1]
+      if (!prev || (prev as HTMLElement).contentEditable == "false") offset--
+      else { node = prev; offset = maxOffset(node) }
+    } else if (node == doc) {
+      return true
+    } else {
+      offset = domIndex(node)
+      node = node.parentNode!
+    }
+  }
+}

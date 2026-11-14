@@ -273,7 +273,7 @@ const renderDialogs = Wordgard.Plugin.fromClass(class {
         connect()
         panel = dom
       }
-      panel.style.zIndex = String(400 + i)
+      panel.style.zIndex = String(500 + i)
       return panel
     })
     this.active = active
