@@ -540,7 +540,7 @@ const theme = Wordgard.styles({
     borderRadius: "4px",
     backgroundColor: "var(--wg-panel-color)",
     position: "absolute",
-    zIndex: "10",
+    zIndex: "400",
     top: "100%",
     boxShadow: "0 2px 8px 0 rgba(128, 128, 128, 0.2)",
     "& wg-menu-list": {

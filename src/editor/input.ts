@@ -66,6 +66,7 @@ export class InputState {
   lastTouchEvent: TouchEvent | null = null
   lastScrollTop = 0
   lastScrollLeft = 0
+  lastFocus = 0
 
   lastContextMenu: number = 0
   scrollHandlers: ((event: Event) => boolean | void)[] = []
@@ -955,6 +956,7 @@ const baseObservers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
       wg.scrollDOM.scrollTop = wg.inputState.lastScrollTop
       wg.scrollDOM.scrollLeft = wg.inputState.lastScrollLeft
     }
+    wg.inputState.lastFocus = Date.now()
     updateForFocusChange(wg)
   },
 

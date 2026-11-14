@@ -22,6 +22,7 @@ function toggleLink(wg: Wordgard) {
   if (remove.length) {
     wg.dispatch({changes: remove, userEvent: "mark.remove"})
   } else {
+    let oldFocus = wg.root.activeElement
     Dialog.show(wg, {
       key: toggleLink,
       label: phrases.get(wg.state, "link_target"),
@@ -32,7 +33,8 @@ function toggleLink(wg: Wordgard) {
       closedBy: tr => !!tr.selection,
       tooltip: {pos: wg.state.selection.from}
     }).result.then(form => {
-      wg.focus()
+      if (oldFocus && wg.dom.ownerDocument.contains(oldFocus)) (oldFocus as HTMLElement).focus()
+      else wg.focus()
       let url = form && (form.elements.namedItem("url") as HTMLInputElement)?.value
       if (url) wg.dispatch({
         changes: wg.state.selection.ranges.map(r => ({from: r.from, to: r.to, add: Link.of(url)})),

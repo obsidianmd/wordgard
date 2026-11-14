@@ -2,7 +2,7 @@ import {GardSelection} from "wordgard/state"
 import browser from "./browser"
 import {Wordgard} from "./editor"
 import {DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange,
-        isEquivalentPosition, isElt} from "./dom"
+        isEquivalentPosition, isElt, atElementStart} from "./dom"
 import {Tile, WidgetTile} from "./tile"
 import {readDOMSelection, selectionFromTouch} from "./selection"
 import {addRange} from "./changes"
@@ -133,6 +133,12 @@ export class DOMObserver {
     let {wg} = this
     if (this.selectionChanged &&
         (wg.hasFocus || !wg.focusable) && hasSelection(wg.contentDOM, this.selectionRange)) {
+      if (wg.inputState.lastFocus > Date.now() - 200 && // Ignore selections that look like a focus-driven reset
+          wg.inputState.lastTouchTime < Date.now() - 300 &&
+          atElementStart(this.wg.contentDOM, this.selectionRange)) {
+        wg.inputState.lastFocus = 0
+        return
+      }
       this.selectionChanged = false
       let fromTouch = wg.inputState.lastTouchTime > Date.now() - 100
       let sel: GardSelection = readDOMSelection(wg, this.selectionRange)
@@ -163,7 +169,7 @@ export class DOMObserver {
     }
     if (!range || !range.focusNode || this.selectionRange.eq(range)) return false
     let context = range.anchorNode && wg.docTile.nearest(range.anchorNode)
-    if (context instanceof WidgetTile) return false
+    if (context instanceof WidgetTile || !context) return false
 
     this.selectionRange.setRange(range)
     return this.selectionChanged = true

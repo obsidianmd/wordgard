@@ -33,13 +33,13 @@ class SetBuilder<T extends PointSet.Value> {
   chunks: Chunk<T>[] = []
   lastPos = -1
   lastSide = -1
-  closed = false
+  closed = 0
 
   addChunk(chunk: Chunk<T>) {
     this.chunks.push(chunk)
     this.lastPos = chunk.end
     this.lastSide = chunk.endSide
-    this.closed = true
+    this.closed = this.chunks.length
   }
 
   add(source: Set.Source<T>, pre?: (value: T, pos: number) => void) {
@@ -56,15 +56,11 @@ class SetBuilder<T extends PointSet.Value> {
 
   addPoint(value: T, pos: number) {
     let chunk: Chunk<T> | undefined
-    let wasClosed = this.closed
-    if (this.chunks.length && !wasClosed) {
+    if (this.closed < this.chunks.length) {
       chunk = this.chunks[this.chunks.length - 1]
       if (chunk.value.length >= ChunkSize.Max) chunk = undefined
     }
-    if (!chunk) {
-      this.chunks.push(chunk = new Chunk(pos, [], []))
-      this.closed = false
-    }
+    if (!chunk) this.chunks.push(chunk = new Chunk(pos, [], []))
     chunk.pos.push(pos - chunk.start)
     chunk.value.push(value)
     if ((pos - this.lastPos || value.side || this.lastSide) >= 0) {
@@ -77,7 +73,7 @@ class SetBuilder<T extends PointSet.Value> {
         if (nextI < 0) {
           if (!chunkI) break
           nextChunk = this.chunks[--chunkI]
-          if (wasClosed)
+          if (this.closed > chunkI)
             nextChunk = this.chunks[chunkI] = new Chunk(nextChunk.start, nextChunk.pos.slice(), nextChunk.value.slice())
           nextI = nextChunk.value.length - 1
         }
@@ -322,18 +318,18 @@ class PointCursor<T extends PointSet.Value> implements Set.Cursor<T> {
 
   goto(pos: number, side: number) {
     let diff = pos - this.from || side - this.side
-    if (diff < 0) {
-      this.chunkI = this.i = 0
-    } else if (diff == 0 && this.cur) {
+    if (diff == 0 && this.cur) {
       // Rewind over points directly before the current position, if necessary
       for (;; this.i--) {
         if (!this.i) {
           this.chunkI = 0
           break
         }
-        if ((pos - this.cur.pos[this.i - 1] || side - this.cur.value[this.i - 1].side) < 0)
+        if ((pos - this.cur.pos[this.i - 1] || side - this.cur.value[this.i - 1].side) <= 0)
           break
       }
+    } else if (diff <= 0) {
+      this.chunkI = this.i = 0
     }
     for (let first = true;;) {
       if (this.chunkI == this.set.chunks.length) {
