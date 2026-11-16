@@ -468,7 +468,7 @@ export function doPaste(
   targetRange: {from: number, to: number} | null,
   event: ClipboardEvent | null
 ) {
-  let {from, to} = targetRange || wg.state.selection.replacementRange
+  let {from, to} = targetRange || wg.state.selection
   let slice = readClipboard(wg.state, html, text, wg.state.doc.resolve(from), wg.inputState.shiftKey)
   if (!targetRange) {
     if (!event) {

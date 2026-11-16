@@ -228,7 +228,8 @@ export function handleTablePaste(state: GardState, slice: Slice, drop?: number) 
       if (!single) return false
       cells = {width: 1, height: 1, rows: [[single]]}
     }
-    let table = state.sel.from.parent!.parent!, map = TableMap.get(table.node, table.start)
+    let anchor = state.doc.resolve(state.selection.anchorCell)
+    let table = anchor.parent!.parent!, map = TableMap.get(table.node, table.start)
     let rect = map.rectBetween(state.selection.anchorCell, state.selection.headCell)
     return insertCells(state, map, rect.startCol, rect.startRow,
                        clipCells(cells, rect.endCol - rect.startCol, rect.endRow - rect.startRow), "paste")

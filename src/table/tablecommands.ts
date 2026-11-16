@@ -16,7 +16,7 @@ export function tableContext(state: GardState, pos?: number) {
       cells = [cellPos.before]
     }
   } else {
-    table = state.sel.anchor.parent!.parent!
+    table = state.sel.anchor.parent!.parent!.parent!
     cells = state.selection.ranges.map(r => r.from - 1)
   }
   return cells ? {cells, map: TableMap.get(table!.node, table!.start)} : null

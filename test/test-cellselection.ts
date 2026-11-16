@@ -54,7 +54,6 @@ function checkSel(sel: GardSelection, doc: Plot.Doc, cells: string) {
 function testSel(doc: Plot.Doc, anchor: number, head: number, cells: string) {
   let sel = CellSelection.between(doc, anchor, head)!
   ist(sel instanceof CellSelection)
-  ist(sel.anchor < sel.head, anchor < head)
   checkSel(sel, doc, cells)
 }
 

@@ -5,7 +5,7 @@ import {type CoordPos} from "./tile"
 import {isEquivalentPosition, getSelection, SelectionRange} from "./dom"
 
 export function setDOMSelection(wg: Wordgard) {
-  let {anchor, head, anchorSide, headSide} = wg.state.selection.domSelection
+  let {anchor, head, anchorSide, headSide} = wg.state.selection
   let anchorDOM = wg.docTile.resolve(anchor, anchorSide)
   let headDOM = head == anchor ? anchorDOM : wg.docTile.resolve(head, headSide)
   let domSel = getSelection(wg.root)

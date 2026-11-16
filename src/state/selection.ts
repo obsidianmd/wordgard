@@ -1,9 +1,9 @@
-import {Plot, Node, Leaf, ChangeSet, Mark, Pos, ValidationError, Slice} from "wordgard/doc"
+import {Plot, Node, Leaf, ChangeSet, Mark, Pos, ValidationError, Slice, Token} from "wordgard/doc"
 import {findClusterBreak} from "@marijn/find-cluster-break"
 import {TextblockMap} from "./textblock"
 import type {GardState} from "./state"
 
-type wgNode = Node
+import wgNode = Node
 
 export class SelectionType {
   constructor(
@@ -47,17 +47,6 @@ export abstract class GardSelection {
   /// this is just the selection's main `from` to `to`, but custom
   /// selection implementations can override it.
   get ranges(): readonly {from: number, to: number}[] { return [this] }
-
-  /// The range that should be used when replacing this selection with
-  /// other content (for example when typing or pasting over it) or
-  /// deleting it. The default implementation returns `this.from` to
-  /// `this.to`.
-  get replacementRange(): {from: number, to: number} { return this }
-
-  /// This can be overridden to control the DOM selection created for
-  /// a selection. The default is to just return the selection's own
-  /// head and anchor.
-  get domSelection(): {head: number, headSide: -1 | 1, anchor: number, anchorSide: -1 | 1} { return this }
 
   /// Create a content slice and context from this selection. The
   /// default implementation concatenates the slices for the
@@ -106,9 +95,8 @@ export abstract class GardSelection {
   check(config: GardState.Configuration, doc: Plot.Doc) {
     if (!config.staticFacet(GardSelection.selectionType).some(t => this instanceof t.cls))
       throw new RangeError("Unsupported selection type")
-    for (let {from, to} of this.ranges)
-      if (from < 0 || to > doc.length)
-        throw new RangeError(`Selection out of document range`)
+    if (this.from < 0 || this.to > doc.length)
+      throw new RangeError(`Selection out of document range`)
   }
 
   /// @internal
@@ -182,6 +170,21 @@ export abstract class GardSelection {
   skipWord(cx: GardSelection.Context, forward = true): GardSelection.Text | null {
     let found = skipWord(cx, this.head, this.headSide, forward)
     return found && GardSelection.cursor(found.pos, found.side)
+  }
+
+  /// Return a change set that replaces the selection with the given
+  /// content, inserting it at the position of the selection's main
+  /// range, and deleting any other ranges.
+  replaceWith(doc: Plot.Doc, content: wgNode | readonly Token[] | Slice) {
+    if (!(content instanceof Slice) && !Array.isArray(content)) content = [content as any as wgNode]
+    let changes: ChangeSet.Change[] = []
+    for (let {from, to} of this.ranges) {
+      if (from == this.from && to == this.to)
+        changes.push({from, to, insert: content as Slice | readonly Token[], fit: true})
+      else if (from != to)
+        changes.push({from, to})
+    }
+    return ChangeSet.create(doc, {correct: changes})
   }
 
   /// Find a normal selection at the start of the document or the
@@ -421,13 +424,6 @@ export namespace GardSelection {
       return this.selection.ranges.map(({from, to}) => ({from: this.doc.resolve(from), to: this.doc.resolve(to)}))
     }
 
-    /// The resolved replacement range.
-    get replacementRange(): {from: Pos, to: Pos} {
-      let repl = this.selection.replacementRange
-      if (repl.from == this.selection.from && repl.to == this.selection.to) return this
-      return {from: this.doc.resolve(repl.from), to: this.doc.resolve(repl.to)}
-    }
-
     /// The active marks for this selection. If this is a cursor
     /// selection with explicitly stored {@link
     /// GardSelection.Text.Spec.marks marks}, those are returned.
@@ -435,8 +431,7 @@ export namespace GardSelection {
     /// content inserted in the selection's position, based on
     /// spanning marks on the surrounding nodes.
     get activeMarks(): Mark.Set {
-      let repl = this.replacementRange
-      return (this.selection instanceof GardSelection.Text && this.selection.marks) || repl.from.marks(repl.to)
+      return (this.selection instanceof GardSelection.Text && this.selection.marks) || this.from.marks(this.to)
     }
   }
 

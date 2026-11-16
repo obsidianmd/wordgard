@@ -40,7 +40,7 @@ function cursorCommand(wg: Wordgard, {dir, extend}: {dir: Dir, extend?: boolean}
   if (!(selection instanceof CellSelection)) return false
   let newSel
   if (!extend) {
-    newSel = GardSelection.near(state, selection.replacementRange.from, 1)
+    newSel = GardSelection.near(state, selection.from, 1)
   } else {
     if (dir == "left" || dir == "right") dir = resolveDir(dir, state)
     newSel = selection.moveHead(state.doc, dir)
@@ -100,8 +100,6 @@ const cellSelectionTripleClick = Wordgard.mouseSelectionStyle.of((wg, event) => 
 /// actions.
 export class CellSelection extends GardSelection {
   private constructor(
-    anchor: number,
-    head: number,
     /// The position directly in front of the cell that acts as this
     /// selection's anchor.
     readonly anchorCell: number,
@@ -111,19 +109,13 @@ export class CellSelection extends GardSelection {
     /// @internal
     readonly _ranges: readonly {from: number, to: number}[],
     /// @internal
-    readonly anchorRange: number
+    headRange: number
   ) {
-    super(anchor, head)
+    let {from, to} = _ranges[headRange]
+    super(from, to)
   }
 
   get ranges() { return this._ranges }
-
-  get replacementRange() { return this._ranges[this.anchorRange] }
-
-  get domSelection() {
-    let {from, to} = this.replacementRange
-    return {anchor: from, anchorSide: 1, head: to, headSide: -1} as const
-  }
 
   toSlice(doc: Plot.Doc) {
     let base = doc.resolve(this.anchorCell), table = base.parent!.parent!
@@ -162,17 +154,15 @@ export class CellSelection extends GardSelection {
   /// Move the head cell in the given direction, returning a new cell
   /// selection if the selection can be extended that way.
   moveHead(doc: Plot.Doc, dir: "up" | "down" | "forward" | "backward"): CellSelection | null {
-    let head = doc.resolve(this.head), inv = this.head < this.anchor
-    let headPos = this.head - (inv ? 0 : head.nodeBefore!.length)
-    let table = head.parent!.parent!, map = TableMap.get(table.node, table.start), rect = map.cellRect(headPos)
-    let anchorPos = inv ? map.nearestCell(this.anchor, -1).from : this.anchor
+    let anchor = doc.resolve(this.anchorCell), table = anchor.parent!.parent!
+    let map = TableMap.get(table.node, table.start), rect = map.cellRect(this.headCell)
     let col = dir == "backward" ? rect.startCol - 1 : dir == "forward" ? rect.endCol : rect.startCol
     let row = dir == "up" ? rect.startRow - 1 : dir == "down" ? rect.endRow : rect.startRow
     if (col < 0 || col >= map.width || row < 0 || row >= map.height) return null
     let newHead = map.cellAt(col, row)
     if (newHead == null) return null
-    return newHead >= anchorPos ? CellSelection.between(doc, anchorPos, map.cellEnd(newHead))
-      : CellSelection.between(doc, newHead, map.cellEnd(anchorPos))
+    return newHead >= this.anchorCell ? CellSelection.between(doc, this.anchorCell, map.cellEnd(newHead))
+      : CellSelection.between(doc, newHead, map.cellEnd(this.anchorCell))
   }
 
   /// Create a table selection between the given points. They should
@@ -196,10 +186,9 @@ export class CellSelection extends GardSelection {
     if (anchor > head) anchorCell -= toCell.length
     else headCell -= toCell.length
     return new CellSelection(
-      anchor, head,
       anchorCell, headCell,
       cells.map(pos => ({from: pos + 1, to: map.cellEnd(pos) - 1})),
-      cells.indexOf(head - (head < anchor ? 0 : toCell.length)))
+      cells.indexOf(headCell))
   }
 
   /// Given a selection, this returns null if that selection is valid
