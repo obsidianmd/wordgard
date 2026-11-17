@@ -175,7 +175,7 @@ export abstract class GardSelection {
   /// Return a change set that replaces the selection with the given
   /// content, inserting it at the position of the selection's main
   /// range, and deleting any other ranges.
-  replaceWith(doc: Plot.Doc, content: wgNode | readonly Token[] | Slice) {
+  replaceWith(content: wgNode | readonly Token[] | Slice): ChangeSet.Spec {
     if (!(content instanceof Slice) && !Array.isArray(content)) content = [content as any as wgNode]
     let changes: ChangeSet.Change[] = []
     for (let {from, to} of this.ranges) {
@@ -184,7 +184,7 @@ export abstract class GardSelection {
       else if (from != to)
         changes.push({from, to})
     }
-    return ChangeSet.create(doc, {correct: changes})
+    return {correct: changes}
   }
 
   /// Find a normal selection at the start of the document or the

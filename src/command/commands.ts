@@ -26,7 +26,7 @@ export const insertText: Command.Pure<{from: number, to: number, insert: string,
   let isSel = from == selection.from && to == selection.to
   let marks = (isSel && state.sel.activeMarks) || state.doc.resolve(from).marks(state.doc.resolve(to))
   return {
-    changes: isSel ? selection.replaceWith(state.doc, insert ? Leaf.text(insert, marks) : [])
+    changes: isSel ? selection.replaceWith(insert ? Leaf.text(insert, marks) : [])
       : {from, to, insert: insert ? [Leaf.text(insert, marks)] : undefined, fit: true},
     scrollIntoView: true,
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1),
@@ -47,11 +47,12 @@ export const insertLineBreak: Command.Pure = ({state}) => {
   let insertBreak = brk && doc.schema.canContain(parent, brk.type)
   if (!(insertBreak || parent.preserveWhitespace && sel.to.parent.start == sel.from.parent.start)) return false
   let insert = insertBreak ? brk!.withMarks(state.sel.activeMarks) : Leaf.text("\n", state.sel.activeMarks)
-  let changes = state.selection.replaceWith(state.doc, insert)
-  let pos = changes.findInserted(t => insertBreak ? t.type == brk!.type : t.isText)
   return {
-    changes,
-    selection: GardSelection.cursor(pos == null ? changes.mapPos(sel.from.pos, 1) : pos + 1, -1),
+    changes: state.selection.replaceWith(insert),
+    selection: (cx, changes) => {
+      let pos = changes.findInserted(t => insertBreak ? t.type == brk!.type : t.isText)
+      return pos == null ? null : GardSelection.cursor(pos + 1, -1)
+    },
     scrollIntoView: true,
     userEvent: insertBreak ? "insert.linebreak" : "input"
   }
@@ -195,7 +196,7 @@ export const yankKilled: Command = wg => {
   if (!buffer || !buffer.content.length || !(state.selection instanceof GardSelection.Text)) return false
   let {selection} = state
   return {
-    changes: state.selection.replaceWith(state.doc, buffer.content),
+    changes: state.selection.replaceWith(buffer.content),
     scrollIntoView: true,
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(selection.from, 1)),
     userEvent: "input.yank"

@@ -100,11 +100,12 @@ function insertTable(wg: Wordgard, width: number, height: number) {
   let row = TableRow.create(cells), rows: Plot[] = []
   for (let i = 0; i < height; i++) rows.push(row)
   let table = Table.create(rows)
-  let changes = state.selection.replaceWith(state.doc, table)
-  let tablePos = changes.findInserted(tag => tag.type == Table.type)
   wg.dispatch({
-    changes,
-    selection: cx => GardSelection.near(cx, tablePos == null ? changes.mapPos(state.selection.from, 1) : tablePos + 3, 1),
+    changes: state.selection.replaceWith(table),
+    selection: (cx, changes) => {
+      let tablePos = changes.findInserted(tag => tag.type == Table.type)
+      return GardSelection.near(cx, tablePos == null ? changes.mapPos(state.selection.from, 1) : tablePos + 3, 1)
+    },
     userEvent: "insert.table"
   })
 }
