@@ -104,7 +104,7 @@ function insertTable(wg: Wordgard, width: number, height: number) {
     changes: state.selection.replaceWith(table),
     selection: (cx, changes) => {
       let tablePos = changes.findInserted(tag => tag.type == Table.type)
-      return GardSelection.near(cx, tablePos == null ? changes.mapPos(state.selection.from, 1) : tablePos + 3, 1)
+      return GardSelection.near(cx, tablePos == null ? changes.mapPos(state.selection.from, 1) : tablePos + 3, -1)
     },
     userEvent: "insert.table"
   })

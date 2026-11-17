@@ -78,7 +78,7 @@ export const enter: Command.Pure = ({state}) => {
     let placed = content.length ? changes.findInserted(t => t == content[0].tag) : null
     return {
       changes,
-      selection: placed != null ? (cx => GardSelection.near(cx, placed + wrap.length, -1)) : undefined,
+      selection: placed != null ? (cx => GardSelection.near(cx, placed + wrap.length, -1, -1)) : undefined,
       scrollIntoView: true,
       userEvent: "insert.textblock"
     }
@@ -198,7 +198,7 @@ export const yankKilled: Command = wg => {
   return {
     changes: state.selection.replaceWith(buffer.content),
     scrollIntoView: true,
-    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(selection.from, 1)),
+    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(selection.from, 1), -1),
     userEvent: "input.yank"
   }
 }
@@ -547,7 +547,8 @@ export const moveByUnit: Command.Pure<{dir: "left" | "right" | "forward" | "back
 ) => {
   let forward = isForward(dir, state), selection = asTextSel(state.selection, forward)
   if (!selection.empty && !extend) {
-    return setSelection(GardSelection.near(state, forward ? selection.to : selection.from, forward ? -1 : 1))
+    let dir: -1 | 1 = forward ? -1 : 1
+    return setSelection(GardSelection.near(state, forward ? selection.to : selection.from, dir, -dir as -1 | 1))
   } else {
     let next: GardSelection | null = selection.nextNormalCursor(state, forward)
     if (!next) return false
@@ -624,7 +625,7 @@ export const moveToLineSide: Command<{
   let pos = wg.moveToLineBoundary(selection, forward)
   return pos ? setSelection(extend ? extendSel(selection, pos) : pos)
     : extend || selection.empty ? false
-    : setSelection(GardSelection.near(wg.state, forward ? selection.to : selection.from))
+    : setSelection(GardSelection.near(wg.state, forward ? selection.to : selection.from, forward ? -1 : 1))
 }
 
 /// Move to the start or end of the textblock that has the selection

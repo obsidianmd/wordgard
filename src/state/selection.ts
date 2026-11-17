@@ -128,10 +128,12 @@ export abstract class GardSelection {
     return GardSelection.Text.createInner(pos, pos, side, true, goalColumn)
   }
 
-  /// Find a normal cursor near the given position.
-  static near(cx: GardSelection.Context, pos: number, side: -1 | 1 = 1, goalColumn?: number) {
-    let norm = findNormalAt(cx, pos, side)
-    return GardSelection.cursor(norm.pos, norm.side, goalColumn)
+  /// Find a normal cursor near the given position. `bias` gives the
+  /// direction in which to scan first. If there's no normal position
+  /// in that direction, the other side will also be tried.
+  static near(cx: GardSelection.Context, pos: number, side: -1 | 1 = 1, bias: -1 | 1 = 1) {
+    let norm = findNormalAt(cx, pos, bias ?? side, side)
+    return GardSelection.cursor(norm.pos, norm.side)
   }
 
   /// Create a text selection.
@@ -198,7 +200,7 @@ export abstract class GardSelection {
   static atEnd(cx: GardSelection.Context, block?: Pos.Plot) {
     let found = block ? {pos: block.end, side: 1} as const
       : cx.doc.inlineContent ? {pos: cx.doc.length, side: 1} as const
-      : findNormalAt(cx, cx.doc.length, -1)
+      : findNormalAt(cx, cx.doc.length, -1, -1)
     return GardSelection.cursor(found.pos, found.side)
   }
 
@@ -445,7 +447,7 @@ export function cursorAtStart(cx: GardSelection.Context, block?: Pos.Plot) {
   let found = block
     ? {pos: block.start, side: -1} as const
     : cx.doc.inlineContent ? {pos: 0, side: -1} as const
-    : findNormalAt(cx, 0, 1)
+    : findNormalAt(cx, 0, 1, 1)
   return GardSelection.cursor(found.pos, found.side)
 }
 
@@ -520,14 +522,14 @@ function scanNormalFrom(
   }
 }
 
-function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {pos: number, side: -1 | 1} {
+function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1, defaultSide: -1 | 1): {pos: number, side: -1 | 1} {
   let res = cx.doc.resolve(pos), lowest = pos
   if (res.inText) {
     let text = res.parent.node.content[res.index].tag.param as string
     let off = bias > 0 ? findClusterBreak(text, res.inText - 1) : findClusterBreak(text, res.inText + 1, false)
     pos += off - res.inText
     if (off > 0 && off < text.length)
-      return {pos, side: bias}
+      return {pos, side: defaultSide}
     res = Pos.create(res.parent, pos, res.index + (off ? 1 : 0), 0)
   }
   // Scan first in direction bias, then the other one, looking for a
@@ -536,7 +538,7 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {po
   for (let pass = 0; pass < 2; pass++) {
     let dir: -1 | 1 = !pass ? bias : -bias as -1 | 1, {parent, index} = res, curPos = pos
     for (;;) {
-      if (parent.node.inlineContent) return {pos: curPos, side: bias}
+      if (parent.node.inlineContent) return {pos: curPos, side: defaultSide}
       if (index == (dir > 0 ? parent.node.content.length : 0)) {
         if (isBarrier(cx, parent.node) || !parent.parent) break
         lowest = curPos = curPos + dir
@@ -553,7 +555,7 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {po
       }
     }
   }
-  return {pos: lowest, side: bias}
+  return {pos: lowest, side: defaultSide}
 }
 
 function skipWord(cx: GardSelection.Context, start: number, side: -1 | 1, forward: boolean) {

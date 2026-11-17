@@ -157,7 +157,7 @@ export function deleteSelection(state: GardState): Transaction.Spec | false {
       local: true
     },
     selection: (cx, changes) => state.selection instanceof GardSelection.Text
-      ? GardSelection.near(cx, changes.mapPos(state.selection.head, -1), 1)
+      ? GardSelection.near(cx, changes.mapPos(state.selection.head, -1), -1)
       : state.selection.map(changes, cx),
     scrollIntoView: true,
     userEvent: "delete.selection"
@@ -173,7 +173,7 @@ export function deleteEmptyPlot(state: GardState, dir: -1 | 1 = -1): Transaction
   if (!plot.parent || plot.start < plot.end) return false
   return {
     changes: {from: plot.before, to: plot.after, fit: true},
-    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.head), dir),
+    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.head), dir, dir),
     scrollIntoView: true,
     userEvent: dir < 0 ? "delete.backward" : "delete.forward"
   }

@@ -168,8 +168,8 @@ describe("GardSelection", () => {
   describe("near", () => {
     it("will skip out of a surrogate pair", () => {
       let s = GardState.create({doc: doc(p("🐜"))})
-      ist(GardSelection.near(s, 2, -1).head, 1)
-      ist(GardSelection.near(s, 2, 1).head, 3)
+      ist(GardSelection.near(s, 2, 1, -1).head, 1)
+      ist(GardSelection.near(s, 2, 1, 1).head, 3)
     })
 
     it("will move to the bottom of a block separation", () => {

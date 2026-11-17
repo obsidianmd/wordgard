@@ -99,7 +99,7 @@ export const deleteColumn: Command.Pure = ({state}) => {
   if (rect.startCol == 0 && rect.endCol == map.width) {
     return {
       changes: {from: map.tablePos, to: map.tablePos + map.table.length, fit: true},
-      selection: cx => GardSelection.near(cx, map.tablePos, -1),
+      selection: cx => GardSelection.near(cx, map.tablePos, 1, -1),
       userevent: "delete.table"
     }
   }
@@ -141,7 +141,7 @@ export const deleteColumn: Command.Pure = ({state}) => {
   }
   return {
     changes,
-    selection: cx => GardSelection.near(cx, delPos, -1),
+    selection: cx => GardSelection.near(cx, delPos, -1, -1),
     userEvent: "delete.column"
   }
 }
@@ -187,7 +187,7 @@ export const deleteRow: Command.Pure = ({state}) => {
   if (rect.startRow == 0 && rect.endRow == map.height) {
     return {
       changes: {from: map.tablePos, to: map.tablePos + map.table.length, fit: true},
-      selection: cx => GardSelection.near(cx, map.tablePos, -1),
+      selection: cx => GardSelection.near(cx, map.tablePos, 1, -1),
       userEvent: "delete.table"
     }
   }
@@ -227,7 +227,7 @@ export const deleteRow: Command.Pure = ({state}) => {
   }
   return {
     changes,
-    selection: cx => GardSelection.near(cx, delPos, -1),
+    selection: cx => GardSelection.near(cx, delPos, 1, -1),
     userEvent: "delete.row"
   }
 }

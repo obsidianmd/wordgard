@@ -708,7 +708,7 @@ function copy(wg: Wordgard, event: ClipboardEvent) {
     if (event.type == "cut" && !state.readOnly)
       wg.dispatch({
         changes: state.selection.ranges.map(r => ({from: r.from, to: r.to, fit: true})),
-        selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.from, -1), 1),
+        selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.from, -1)),
         scrollIntoView: true,
         userEvent: "delete.cut"
       })

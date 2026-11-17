@@ -40,14 +40,14 @@ function cursorCommand(wg: Wordgard, {dir, extend}: {dir: Dir, extend?: boolean}
   if (!(selection instanceof CellSelection)) return false
   let newSel
   if (!extend) {
-    newSel = GardSelection.near(state, selection.from, 1)
+    newSel = GardSelection.near(state, selection.from, -1)
   } else {
     if (dir == "left" || dir == "right") dir = resolveDir(dir, state)
     newSel = selection.moveHead(state.doc, dir)
     if (!newSel) {
-      let forward = dir == "forward" || dir == "down"
+      let forward = dir == "forward" || dir == "down", dirSig: -1 | 1 = forward ? 1 : -1
       let table = state.sel.from.parent!.parent!
-      let next = GardSelection.near(state, forward ? table.after : table.before, forward ? 1 : -1)
+      let next = GardSelection.near(state, forward ? table.after : table.before, -dirSig as -1 | 1, dirSig)
       newSel = GardSelection.range(forward ? table.before : table.after, next.head, next.headSide)
     }
   }
@@ -146,7 +146,7 @@ export class CellSelection extends GardSelection {
       let found = CellSelection.create(cx.doc, anchor.pos, head.pos)
       if (found) return found
     }
-    return GardSelection.near(cx, changes.mapPos(this.head), assoc)
+    return GardSelection.near(cx, changes.mapPos(this.anchor), -1, assoc)
   }
 
   /// Move the head cell in the given direction, returning a new cell
