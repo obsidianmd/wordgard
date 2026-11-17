@@ -42,24 +42,6 @@ function init<D, S extends Set<D>>(
   })
 }
 
-function refreshByPred<D, S extends Set<D>>(
-  config: Config,
-  source: Source<D>,
-  doc: Plot.Doc,
-  deco: S,
-  pred: (plot: Plot) => boolean
-): S {
-  let recreate: Set.Replacement<D>[] = []
-  let {type} = config
-  doc.iterate((node, pos) => {
-    if (doc.schema.matchNode(node.type, type) && pred(node as Plot)) recreate.push({
-      from: pos, to: pos + node.length,
-      add: add => source(node as Plot, pos + 1, add)
-    })
-  })
-  return recreate.length ? deco.modify({replace: recreate as any}) : deco
-}
-
 type SetSource<T> = (add: (value: T, from: number, to?: number) => void) => void
 
 function update<D, S extends Set<D>>(
@@ -70,10 +52,8 @@ function update<D, S extends Set<D>>(
   tr: Transaction
 ): S {
   let doc = tr.newDoc
-  let refresh = config.refresh && config.refresh(tr)
-  if (refresh === true) return init(config, create, source, doc)
-  if (refresh) deco = refreshByPred(config, source, tr.startState.doc, deco, refresh)
-  if (!tr.docChanged && !refresh) return deco
+  if (config.refresh?.(tr)) return init(config, create, source, doc)
+  if (!tr.docChanged) return deco
   let recreate: {from: number, to: number, add: SetSource<D>}[] = []
   let clear: {from: number, to: number}[] = []
   let scannedTo = 0
@@ -143,9 +123,8 @@ type Config = {
   /// should be relative to the start of the plot's content.
   points?: (node: Plot, point: (deco: Decoration.Point, pos: number) => void) => void
   /// An optional function that causes the decorations to be recreated
-  /// on matching transaction, either for the entire document (`true`)
-  /// or for any plot where the returned predicate returns `true`.
-  refresh?: (tr: Transaction) => boolean | ((plot: Plot) => boolean)
+  /// on matching transaction.
+  refresh?: (tr: Transaction) => boolean
 }
 
 /// Create an extension that adds decorations to plots matching the
