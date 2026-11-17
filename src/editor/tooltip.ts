@@ -1,7 +1,7 @@
 import {GardState, Transaction} from "wordgard/state"
 import {Wordgard} from "./editor"
 import {logException} from "./util"
-import {windowRect} from "./dom"
+import {windowRect, getScale} from "./dom"
 import browser from "./browser"
 
 type Measured = {
@@ -10,7 +10,7 @@ type Measured = {
   pos: (DOMRect | null)[],
   size: DOMRect[],
   space: DOMRect,
-  scaleX: number, scaleY: number,
+  scale: {scaleX: number, scaleY: number},
   makeAbsolute: boolean
 }
 
@@ -232,7 +232,7 @@ const tooltipPlugin = Wordgard.Plugin.fromClass(class {
   }
 
   readMeasure(): Measured {
-    let scaleX = 1, scaleY = 1, makeAbsolute = false
+    let makeAbsolute = false
     if (this.position == "fixed" && this.manager.tooltipViews.length) {
       let {dom} = this.manager.tooltipViews[0]
       if (browser.safari) {
@@ -247,25 +247,20 @@ const tooltipPlugin = Wordgard.Plugin.fromClass(class {
         makeAbsolute = !!dom.offsetParent && dom.offsetParent != this.container.ownerDocument.body
       }
     }
-    if (makeAbsolute || this.position == "absolute") {
-      let measure = this.parent || this.container, rect = measure.getBoundingClientRect()
-      if (rect.width && rect.height) {
-        scaleX = rect.width / measure.offsetWidth
-        scaleY = rect.height / measure.offsetHeight
-      }
-    }
+    let wrapper = this.parent || this.container, wrapperRect = wrapper.getBoundingClientRect()
+    let scale = getScale(wrapper, wrapperRect)
     let visible = this.wg.scrollDOM.getBoundingClientRect(), margins = this.wg.getScrollMargins()
     let visLeft = visible.left + margins.left, visTop = visible.top + margins.top
     return {
       visible: new DOMRect(visLeft, visTop, visible.right - margins.right - visLeft, visible.bottom - margins.bottom - visTop),
-      parent: this.parent ? this.container.getBoundingClientRect() : this.wg.dom.getBoundingClientRect(),
+      parent: wrapperRect,
       pos: this.manager.tooltips.map((t, i) => {
         let tv = this.manager.tooltipViews[i]
         return tv.getCoords ? tv.getCoords(t.pos) : this.wg.coordsAtPos(t.pos)
       }),
       size: this.manager.tooltipViews.map(({dom}) => dom.getBoundingClientRect()),
       space: this.wg.state.facet(tooltipConfig).tooltipSpace(this.wg),
-      scaleX, scaleY, makeAbsolute
+      scale, makeAbsolute
     }
   }
 
@@ -276,7 +271,7 @@ const tooltipPlugin = Wordgard.Plugin.fromClass(class {
       for (let t of this.manager.tooltipViews) t.dom.style.position = "absolute"
     }
 
-    let {visible, space, scaleX, scaleY} = measured
+    let {visible, space, scale: {scaleX, scaleY}} = measured
     let others = []
     for (let i = 0; i < this.manager.tooltips.length; i++) {
       let tooltip = this.manager.tooltips[i], tView = this.manager.tooltipViews[i], {dom} = tView

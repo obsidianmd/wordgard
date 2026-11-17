@@ -3,7 +3,7 @@ import {GardState} from "wordgard/state"
 import type {Wordgard} from "./editor"
 import {TextTile} from "./tile"
 import {coordsAtPos} from "./coords"
-import {textRange, isElt} from "./dom"
+import {textRange, isElt, getScale} from "./dom"
 // FIXME this is a bit sloppy
 import {renderMarks} from "./decoration"
 
@@ -72,6 +72,7 @@ export class CursorLayer {
       if (!info ? cur : !cur || cur.left != info.left || cur.top != info.top || cur.size != info.size ||
           (cur.style ? !cur.style.eq(info.style) : info.style)) {
         this.info = info
+        let scale = getScale(wg.scrollDOM, wg.scrollDOM.getBoundingClientRect())
         wg.scheduleDOMWrite(() => {
           let cursor = this.layer.firstChild as HTMLElement | null
           if (!info) {
@@ -80,10 +81,10 @@ export class CursorLayer {
             if (!cursor)
               cursor = this.layer.appendChild(document.createElement("wg-cursor"))
             cursor.className = "wg-cursor-" + (info.horiz ? "h" : "v")
-            cursor.style.top = info.top + "px"
-            cursor.style.left = info.left + "px"
-            cursor.style.width = info.horiz ? info.size + "px" : ""
-            cursor.style.height = info.horiz ? "" : info.size + "px"
+            cursor.style.top = (info.top / scale.scaleY) + "px"
+            cursor.style.left = (info.left / scale.scaleX) + "px"
+            cursor.style.width = info.horiz ? (info.size / scale.scaleX) + "px" : ""
+            cursor.style.height = info.horiz ? "" : (info.size / scale.scaleY) + "px"
             cursor.style.borderLeftColor = info.style ? info.style.color : ""
             cursor.classList.toggle("wg-cursor-bold", info.style?.bold ?? false)
             cursor.classList.toggle("wg-cursor-italic", info.style?.italic ?? false)
