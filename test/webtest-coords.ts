@@ -188,4 +188,14 @@ describe("moveVertically", () => {
     ist(wg.moveVertically(s(10), false)?.head, 2)
     ist(wg.moveVertically(s(6), false)?.head, 1)
   })
+
+  it("stops between whitespace-preserving blocks", () => {
+    let wg = tempEditor(doc(pre("a"), pre("b")))
+    let down = wg.moveVertically(s(2), true)!
+    ist(down.head, 3)
+    ist(wg.moveVertically(down, true)?.head, 5)
+    let up = wg.moveVertically(s(4), false)!
+    ist(up.head, 3)
+    ist(wg.moveVertically(up, false)?.head, 1)
+  })
 })

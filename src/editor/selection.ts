@@ -73,7 +73,7 @@ export function moveVertically(
   let baseLTR = wg.state.textLTR
   let goalColumn = start.goalColumn ?? (baseLTR ? coords.left - editorRect.left : editorRect.right - coords.left)
   let x = baseLTR ? editorRect.left + goalColumn : editorRect.right - goalColumn
-  let y = forward ? coords.bottom + distance : coords.top - distance
+  let y = forward ? coords.bottom + distance : coords.top - distance, startY = y
   for (let scan = start.head;;) {
     let pos = wg.state.doc.resolve(scan), block = pos.textblockParent
     if (block) {
@@ -86,7 +86,7 @@ export function moveVertically(
         y += forward ? Y_STEP : -Y_STEP
       }
       if (!block.parent) return null
-      scan = forward ? block.after : block.before
+      scan = forward ? block.after - 1 : block.before + 1
     }
 
     let nextCursor = GardSelection.cursor(scan).nextNormalCursor(wg.state, forward)
@@ -95,7 +95,7 @@ export function moveVertically(
     if (!nextNode || ((forward ? nextCursor.head <= nextNode.before : nextCursor.head >= nextNode.after) &&
                       wg.state.doc.resolve(nextCursor.head).depth < nextNode.depth)) {
       let coords = wg.coordsAtPos(nextCursor.head, nextCursor.headSide)
-      if (forward ? coords.bottom > y : coords.top < y)
+      if (forward ? coords.bottom >= startY : coords.top <= startY)
         return GardSelection.cursor(nextCursor.head, nextCursor.headSide, goalColumn)
       if (!nextNode) return null
     }
