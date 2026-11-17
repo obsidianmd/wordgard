@@ -209,7 +209,7 @@ export function insertCells(
   let startCell = map.cellAt(startCol, startRow)
   let endCell = map.cellAt(endCol - 1, endRow - 1)
   let selection = startCell == null || endCell == null ? undefined
-    : CellSelection.between(doc, startCell, endCell + map.getCell(endCell).length)!
+    : CellSelection.create(doc, startCell, endCell)!
   return {
     changes: changeSet!,
     selection,
