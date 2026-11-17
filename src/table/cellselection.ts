@@ -1,7 +1,7 @@
 import {GardState, GardSelection, Transaction} from "wordgard/state"
 import {Decoration, Wordgard} from "wordgard/editor"
 import {Node, Plot, Pos, Slice, ChangeSet, ValidationError} from "wordgard/doc"
-import {Table, TableRow} from "wordgard/types"
+import {Table} from "wordgard/types"
 import {Command, moveByUnit, moveByLine, moveByWord, moveToLineSide} from "wordgard/command"
 
 import {TableMap} from "./tablemap"
@@ -40,7 +40,7 @@ function cursorCommand(wg: Wordgard, {dir, extend}: {dir: Dir, extend?: boolean}
   if (!(selection instanceof CellSelection)) return false
   let newSel
   if (!extend) {
-    newSel = GardSelection.near(state, selection.replacementRange.from, 1)
+    newSel = GardSelection.near(state, selection.from, 1)
   } else {
     if (dir == "left" || dir == "right") dir = resolveDir(dir, state)
     newSel = selection.moveHead(state.doc, dir)
@@ -83,7 +83,7 @@ const cellSelectionTripleClick = Wordgard.mouseSelectionStyle.of((wg, event) => 
     if (cell) {
       let from = cell.before, to = cell.after
       return {
-        get(event) { return CellSelection.between(wg.state.doc, from, to) || GardSelection.near(wg.state, from, 1) },
+        get(event) { return CellSelection.create(wg.state.doc, cell.before) || GardSelection.near(wg.state, from, 1) },
         update(update) { from = update.changes.mapPos(from, 1); to = Math.max(from, update.changes.mapPos(to, -1)) }
       }
     }
@@ -100,8 +100,6 @@ const cellSelectionTripleClick = Wordgard.mouseSelectionStyle.of((wg, event) => 
 /// actions.
 export class CellSelection extends GardSelection {
   private constructor(
-    anchor: number,
-    head: number,
     /// The position directly in front of the cell that acts as this
     /// selection's anchor.
     readonly anchorCell: number,
@@ -111,19 +109,13 @@ export class CellSelection extends GardSelection {
     /// @internal
     readonly _ranges: readonly {from: number, to: number}[],
     /// @internal
-    readonly anchorRange: number
+    headRange: number
   ) {
-    super(anchor, head)
+    let {from, to} = _ranges[headRange]
+    super(from, to)
   }
 
   get ranges() { return this._ranges }
-
-  get replacementRange() { return this._ranges[this.anchorRange] }
-
-  get domSelection() {
-    let {from, to} = this.replacementRange
-    return {anchor: from, anchorSide: 1, head: to, headSide: -1} as const
-  }
 
   toSlice(doc: Plot.Doc) {
     let base = doc.resolve(this.anchorCell), table = base.parent!.parent!
@@ -144,62 +136,48 @@ export class CellSelection extends GardSelection {
   }
 
   eq(other: GardSelection) {
-    return other instanceof CellSelection && other.anchor == this.anchor && other.head == this.head
+    return other instanceof CellSelection && other.anchorCell == this.anchorCell && other.headCell == this.headCell
   }
 
-  map(changes: ChangeSet, cx: GardSelection.Context, assoc: -1 | 1 = -1) {
-    let fromPos = changes.mapPos(this.from, 1), toPos = changes.mapPos(this.to, -1)
-    let from = cx.doc.resolve(fromPos), to = cx.doc.resolve(toPos)
-    let after = from.nodeAfter, before = to.nodeBefore
-    if (after && after.type == Table.type) fromPos += 2
-    else if (after && after.type == TableRow.type) fromPos++
-    if (before && before.type == Table.type) toPos -= 2
-    else if (before && before.type == TableRow.type) toPos--
-    return (this.from == this.anchor ? CellSelection.between(cx.doc, fromPos, toPos) : CellSelection.between(cx.doc, toPos, fromPos))
-      || GardSelection.near(cx, changes.mapPos(this.head), assoc)
+  map(changes: ChangeSet, cx: GardSelection.Context, assoc: -1 | 1 = -1): GardSelection {
+    let anchor = mapCellPos(this.anchorCell, changes, cx, this.anchorCell < this.headCell)
+    let head = mapCellPos(this.headCell, changes, cx, this.anchorCell >= this.headCell)
+    if (head && anchor) {
+      let found = CellSelection.create(cx.doc, anchor.pos, head.pos)
+      if (found) return found
+    }
+    return GardSelection.near(cx, changes.mapPos(this.head), assoc)
   }
 
   /// Move the head cell in the given direction, returning a new cell
   /// selection if the selection can be extended that way.
   moveHead(doc: Plot.Doc, dir: "up" | "down" | "forward" | "backward"): CellSelection | null {
-    let head = doc.resolve(this.head), inv = this.head < this.anchor
-    let headPos = this.head - (inv ? 0 : head.nodeBefore!.length)
-    let table = head.parent!.parent!, map = TableMap.get(table.node, table.start), rect = map.cellRect(headPos)
-    let anchorPos = inv ? map.nearestCell(this.anchor, -1).from : this.anchor
+    let anchor = doc.resolve(this.anchorCell), table = anchor.parent!.parent!
+    let map = TableMap.get(table.node, table.start), rect = map.cellRect(this.headCell)
     let col = dir == "backward" ? rect.startCol - 1 : dir == "forward" ? rect.endCol : rect.startCol
     let row = dir == "up" ? rect.startRow - 1 : dir == "down" ? rect.endRow : rect.startRow
     if (col < 0 || col >= map.width || row < 0 || row >= map.height) return null
     let newHead = map.cellAt(col, row)
     if (newHead == null) return null
-    return newHead >= anchorPos ? CellSelection.between(doc, anchorPos, map.cellEnd(newHead))
-      : CellSelection.between(doc, newHead, map.cellEnd(anchorPos))
+    return CellSelection.create(doc, this.anchorCell, newHead)
   }
 
-  /// Create a table selection between the given points. They should
-  /// point before and after the first and last cell of the selection
-  /// (`anchor` may be before or after `head`, as long as the lower
-  /// sits before a cell and the higher after a cell). Returns `null`
-  /// if the given range does not wrap a range of cells in a single
-  /// table.
-  static between(doc: Plot.Doc, anchor: number, head: number) {
-    let from = doc.resolve(Math.min(anchor, head)), to = doc.resolve(Math.max(anchor, head))
-    let fromCell = from.nodeAfter, toCell = to.nodeBefore, table = from.parent?.parent
-    if (anchor == head ||
-        !fromCell || !doc.schema.matchNode(fromCell.type, Node.Group.TableCell) ||
-        !toCell || !doc.schema.matchNode(toCell.type, Node.Group.TableCell) ||
-        !table || table.start > to.pos || table.end < to.pos)
+  /// Create a cell selection between the cells at the two given
+  /// positions. If the positions don't point in front of cells or the
+  /// cells are not in the same table, this will return `null`.
+  static create(doc: Plot.Doc, anchorCell: number, headCell = anchorCell) {
+    let anchor = doc.resolve(anchorCell), head = doc.resolve(headCell)
+    let anchorNode = anchor.nodeAfter, headNode = head.nodeAfter
+    if (!anchorNode || !doc.schema.matchNode(anchorNode.type, Node.Group.TableCell) ||
+        !headNode || !doc.schema.matchNode(headNode.type, Node.Group.TableCell))
       return null
-    let toPos = to.pos - toCell.length
+    let table = anchor.parent!.parent!
+    if (head.parent!.parent!.start != table.start) return null
     let map = TableMap.get(table.node, table.start)
-    let cells = map.cellsInRect(map.rectBetween(from.pos, toPos))
-    let anchorCell = anchor, headCell = head
-    if (anchor > head) anchorCell -= toCell.length
-    else headCell -= toCell.length
-    return new CellSelection(
-      anchor, head,
-      anchorCell, headCell,
-      cells.map(pos => ({from: pos + 1, to: map.cellEnd(pos) - 1})),
-      cells.indexOf(head - (head < anchor ? 0 : toCell.length)))
+    let cells = map.cellsInRect(map.rectBetween(anchorCell, headCell))
+    return new CellSelection(anchorCell, headCell,
+                             cells.map(pos => ({from: pos + 1, to: map.cellEnd(pos) - 1})),
+                             cells.indexOf(headCell))
   }
 
   /// Given a selection, this returns null if that selection is valid
@@ -210,7 +188,7 @@ export class CellSelection extends GardSelection {
   static normalize(sel: GardSelection, doc: Plot.Doc): GardSelection | null {
     if (sel instanceof CellSelection) return null
     let {from, to} = sel, modified = false
-    for (let parent: Pos.Plot | null = doc.resolve(sel.from).parent, cell: Pos.Plot | null = null;
+    for (let parent: Pos.Plot | null = doc.resolve(from).parent, cell: Pos.Plot | null = null;
          parent; parent = parent.parent) {
       if (doc.schema.matchNode(parent.node.type, Node.Group.TableCell)) cell = parent
       if (parent.node.type == Table.type) {
@@ -222,10 +200,10 @@ export class CellSelection extends GardSelection {
           // Inside this table, but not in same cell
           let map = TableMap.get(parent.node, parent.start)
           let start = map.nearestCell(from, 1), end = map.nearestCell(to, -1)
-          if (start.from > end.from) end = start
+          if (start > end) end = start
           return sel.anchor < sel.head
-            ? CellSelection.between(doc, start.from, end.to)
-            : CellSelection.between(doc, end.to, start.from)
+            ? CellSelection.create(doc, start, end)
+            : CellSelection.create(doc, end, start)
         }
       }
     }
@@ -242,11 +220,11 @@ export class CellSelection extends GardSelection {
   static extension: GardState.Extension = [
     GardSelection.define<CellSelection, {anchor: number, head: number}>(
       "cell", CellSelection as any,
-      sel => ({anchor: sel.anchor, head: sel.head}),
+      sel => ({anchor: sel.anchorCell, head: sel.headCell}),
       (doc, json) => {
         if (!json || typeof json.anchor != "number" || typeof json.head != "number")
           throw new ValidationError("Invalid JSON data for CellSelection")
-        let sel = CellSelection.between(doc, json.anchor, json.head)
+        let sel = CellSelection.create(doc, json.anchor, json.head)
         if (!sel) throw new ValidationError("Cell selection from JSON doesn't span actual cells")
         return sel
       }),
@@ -258,4 +236,17 @@ export class CellSelection extends GardSelection {
     Command.handler(moveToLineSide, moveToRowSide),
     cellSelectionTripleClick
   ]
+}
+
+function mapCellPos(pos: number, changes: ChangeSet, cx: GardSelection.Context, forward: boolean) {
+  let cellPos = changes.mapPos(pos, 1, "after")
+  if (cellPos == null) { // Cell was deleted
+    let newPos = cx.doc.resolve(changes.mapPos(pos, -1))
+    let next = forward ? newPos.nodeAfter : newPos.nodeBefore
+    return next && cx.doc.schema.matchNode(next.type, Node.Group.TableCell)
+      ? cx.doc.resolve(newPos.pos - (forward ? 0 : next.length)) : null
+  }
+  let newPos = cx.doc.resolve(cellPos), after = newPos.nodeAfter
+  return after && cx.doc.schema.matchNode(after.type, Node.Group.TableCell)
+    ? newPos : null
 }

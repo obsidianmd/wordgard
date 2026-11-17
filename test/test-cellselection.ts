@@ -1,6 +1,6 @@
 import {CellSelection} from "wordgard/table"
 import {GardSelection} from "wordgard/state"
-import {Plot, Leaf, Mark, Schema} from "wordgard/doc"
+import {Plot, Leaf, Mark, Schema, ChangeSet} from "wordgard/doc"
 import {Table, TableRow, Cell, ColSpan, RowSpan} from "wordgard/types"
 import {builder, basicBuilders, basicSchema} from "./schema.ts"
 import ist from "ist"
@@ -52,9 +52,8 @@ function checkSel(sel: GardSelection, doc: Plot.Doc, cells: string) {
 }
 
 function testSel(doc: Plot.Doc, anchor: number, head: number, cells: string) {
-  let sel = CellSelection.between(doc, anchor, head)!
+  let sel = CellSelection.create(doc, anchor, head)!
   ist(sel instanceof CellSelection)
-  ist(sel.anchor < sel.head, anchor < head)
   checkSel(sel, doc, cells)
 }
 
@@ -73,7 +72,7 @@ function testNorm(doc: Plot.Doc, anchor: number, head: number, result: string | 
 }
 
 function testMove(doc: Plot.Doc, anchor: number, head: number, dir: "forward" | "backward" | "up" | "down", cells: string | null) {
-  let sel = CellSelection.between(doc, anchor, head)!.moveHead(doc, dir)
+  let sel = CellSelection.create(doc, anchor, head)!.moveHead(doc, dir)
   if (cells) {
     ist(sel)
     checkSel(sel!, doc, cells)
@@ -82,42 +81,50 @@ function testMove(doc: Plot.Doc, anchor: number, head: number, dir: "forward" | 
   }
 }
 
+function testMap(doc: Plot.Doc, anchor: number, head: number, change: ChangeSet.Spec, newAnchor: number, newHead: number) {
+  let ch = ChangeSet.create(doc, change)
+  let sel = CellSelection.create(doc, anchor, head)!.map(ch, {doc: ch.apply(doc)} as GardSelection.Context)
+  ist(sel instanceof CellSelection)
+  ist((sel as CellSelection).anchorCell, newAnchor)
+  ist((sel as CellSelection).headCell, newHead)
+}
+
 describe("CellSelection", () => {
   it("Can select two adjacent cells", () =>
-    testSel(mkTable(), 7, 17, "2,1 3,1"))
+    testSel(mkTable(), 7, 12, "2,1 3,1"))
 
   it("Can select two adjacent cells in reverse", () =>
-    testSel(mkTable(), 17, 7, "2,1 3,1"))
+    testSel(mkTable(), 12, 7, "2,1 3,1"))
 
   it("Can select three adjacent cells", () =>
-    testSel(mkTable(), 19, 34, "1,2 2,2 3,2"))
+    testSel(mkTable(), 19, 29, "1,2 2,2 3,2"))
 
   it("Can select two cells vertically", () =>
-    testSel(mkTable(), 7, 29, "2,1 2,2"))
+    testSel(mkTable(), 7, 24, "2,1 2,2"))
     
   it("Can select two cells vertically in reverse", () =>
-    testSel(mkTable(), 29, 7, "2,1 2,2"))
+    testSel(mkTable(), 24, 7, "2,1 2,2"))
 
   it("Can select a single cell", () =>
-    testSel(mkTable(), 24, 29, "2,2"))
+    testSel(mkTable(), 24, 24, "2,2"))
 
   it("Can select a single cell in reverse", () =>
-    testSel(mkTable(), 24, 29, "2,2"))
+    testSel(mkTable(), 24, 24, "2,2"))
 
   it("Can select a square of cells", () =>
-    testSel(mkTable(), 7, 34, "2,1 3,1 2,2 3,2"))
+    testSel(mkTable(), 7, 29, "2,1 3,1 2,2 3,2"))
 
   it("Can select a square of cells in reverse", () =>
-    testSel(mkTable(), 34, 7, "2,1 3,1 2,2 3,2"))
+    testSel(mkTable(), 29, 7, "2,1 3,1 2,2 3,2"))
 
   it("Can handle merged cells", () =>
-    testSel(mkTable(3, 3, "2,2:2x2"), 2, 29, "1,1 2,1 3,1 1,2 2,2 1,3"))
+    testSel(mkTable(3, 3, "2,2:2x2"), 2, 24, "1,1 2,1 3,1 1,2 2,2 1,3"))
 
   it("grows to cover a colspan", () =>
-    testSel(mkTable(3, 3, "1,2:2x1"), 2, 24, "1,1 2,1 1,2"))
+    testSel(mkTable(3, 3, "1,2:2x1"), 2, 19, "1,1 2,1 1,2"))
 
   it("grows to cover a rowspan", () =>
-    testSel(mkTable(3, 3, "2,1:1x3"), 2, 12, "1,1 2,1 1,2 1,3"))
+    testSel(mkTable(3, 3, "2,1:1x3"), 2, 7, "1,1 2,1 1,2 1,3"))
 
   describe("normalize", () => {
     it("leaves selections inside a cell alone", () =>
@@ -150,30 +157,53 @@ describe("CellSelection", () => {
 
   describe("moveHead", () => {
     it("can move forward", () =>
-      testMove(mkTable(), 24, 29, "forward", "2,2 3,2"))
+      testMove(mkTable(), 24, 24, "forward", "2,2 3,2"))
     
     it("can move backward", () =>
-      testMove(mkTable(), 24, 29, "backward", "1,2 2,2"))
+      testMove(mkTable(), 24, 24, "backward", "1,2 2,2"))
 
     it("can move up", () =>
-      testMove(mkTable(), 24, 29, "up", "2,1 2,2"))
+      testMove(mkTable(), 24, 24, "up", "2,1 2,2"))
 
     it("can move down", () =>
-      testMove(mkTable(), 24, 29, "down", "2,2 2,3"))
+      testMove(mkTable(), 24, 24, "down", "2,2 2,3"))
 
     it("moves the head", () =>
-      testMove(mkTable(), 2, 17, "backward", "1,1 2,1"))
+      testMove(mkTable(), 2, 12, "backward", "1,1 2,1"))
 
     it("moves the head when inverted", () =>
-      testMove(mkTable(), 17, 2, "forward", "2,1 3,1"))
+      testMove(mkTable(), 12, 2, "forward", "2,1 3,1"))
 
     it("extends to a rectangle", () =>
-      testMove(mkTable(), 2, 17, "down", "1,1 2,1 3,1 1,2 2,2 3,2"))
+      testMove(mkTable(), 2, 12, "down", "1,1 2,1 3,1 1,2 2,2 3,2"))
 
     it("extend when hitting a colspan node", () =>
-      testMove(mkTable(3, 3, "1,1:3x1"), 9, 14, "up", "1,1 1,2 2,2 3,2"))
+      testMove(mkTable(3, 3, "1,1:3x1"), 9, 9, "up", "1,1 1,2 2,2 3,2"))
 
     it("extend when hitting a rowspan node", () =>
-      testMove(mkTable(3, 3, "2,1:1x3"), 24, 2, "forward", "1,1 2,1 1,2 1,3"))
+      testMove(mkTable(3, 3, "2,1:1x3"), 19, 2, "forward", "1,1 2,1 1,2 1,3"))
+  })
+
+  describe("map", () => {
+    it("can map through a remote change", () =>
+      testMap(mkTable(), 19, 29, {from: 0, insert: [p("!")]}, 22, 32))
+
+    it("can handle a changed cell before the selection", () =>
+      testMap(mkTable(), 19, 29, {from: 3, to: 5}, 17, 27))
+
+    it("can handle a changed cell inside the selection", () =>
+      testMap(mkTable(), 19, 29, {from: 20, to: 21}, 19, 28))
+
+    it("works if the cell at the end of the selection is deleted", () =>
+      testMap(mkTable(), 2, 12, {from: 7, to: 12}, 2, 7))
+
+    it("works in inverted selection if the cell at the end is deleted", () =>
+      testMap(mkTable(), 12, 2, {from: 7, to: 12}, 7, 2))
+
+    it("works if the cell at the start of the selection is deleted", () =>
+      testMap(mkTable(), 2, 12, {from: 2, to: 7}, 2, 7))
+
+    it("works in inverted selection if the cell at the start is deleted", () =>
+      testMap(mkTable(), 12, 2, {from: 2, to: 7}, 7, 2))
   })
 })

@@ -4,9 +4,10 @@ import {BulletList, OrderedList, ListItem, InlineListItem} from "wordgard/types"
 import {phrases} from "wordgard/phrases"
 import {InputRule} from "wordgard/editor"
 
-/// Enable support for bullet lists. Includes the schema elements, the {@link
-/// bulletList.toggleButton menu button}, and the {@link
-/// bulletList.createOnDash input rule}.
+/// Enable support for bullet lists. Includes the schema elements, the
+/// {@link bulletList.toggleButton menu button}, and the {@link
+/// bulletList.createOnDash}/{@link bulletList.createOnAsterisk} input
+/// rules.
 export function bulletList(config: {
   /// By defaults, list items contain {@link doc.Node.Group.Content
   /// block content}. Set this to false to allow only inline content.
@@ -14,14 +15,19 @@ export function bulletList(config: {
 } = {}) {
   return [GardState.schemaElement.of(BulletList),
           GardState.schemaElement.of(config.blockItems == false ? InlineListItem : ListItem),
-          bulletList.toggleButton, bulletList.createOnDash]
+          bulletList.toggleButton, bulletList.createOnDash, bulletList.createOnAsterisk]
 }
 
 export namespace bulletList {
   /// This rule wraps the current textblock in a bullet list when the
-  /// user starts it by typing an optional space, a dash, and then another
+  /// user starts it by typing an optional space, a dash, and then a
   /// space.
   export const createOnDash = InputRule.wrapping(/^ ?- $/, BulletList, true)
+
+  /// This rule wraps the current textblock in a bullet list when the
+  /// user starts it by typing an optional space, an asterisk, and
+  /// then a space.
+  export const createOnAsterisk = InputRule.wrapping(/^ ?\* $/, BulletList, true)
 
   /// A menu button that toggles bullet list wrapping for the selection.
   export const toggleButton = Menu.Button.define({

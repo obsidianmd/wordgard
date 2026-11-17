@@ -89,7 +89,7 @@ export const baseStyles = buildTheme("." + styleID, {
       position: "absolute"
     },
     pointerEvents: "none",
-    zIndex: 150,
+    zIndex: 100,
   },
 
   // Two animations defined so that we can switch between them to
@@ -167,7 +167,7 @@ export const baseStyles = buildTheme("." + styleID, {
     position: "sticky",
     left: 0,
     right: 0,
-    zIndex: 300,
+    zIndex: 200,
     backgroundColor: "var(--wg-panel-color)",
     font: "var(--wg-dialog-font)",
   },

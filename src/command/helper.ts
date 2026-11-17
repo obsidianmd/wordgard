@@ -96,7 +96,7 @@ export function enterInCode(state: GardState): Transaction.Spec | false {
 /// textblock is the first child of a list item, also split that item,
 /// unless `splitListItem` is false.
 export function splitTextblock(state: GardState, splitListItem = true): Transaction.Spec | false {
-  let {from, to} = state.sel.replacementRange, {schema} = state.doc
+  let {from, to} = state.sel, {schema} = state.doc
   let before = from.textblockParent
   if (!before || !before.parent || before.node.type.isolating) return false
   let tokens: Token[] = []

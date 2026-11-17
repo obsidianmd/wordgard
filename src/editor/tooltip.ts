@@ -349,7 +349,7 @@ function setLeftStyle(elt: HTMLElement, value: number) {
 
 const styles = Wordgard.styles({
   ".wg-tooltip": {
-    zIndex: 500,
+    zIndex: 300,
     boxSizing: "border-box",
     backgroundColor: "var(--wg-panel-color)",
     boxShadow: "0 0 8px 0 rgba(128, 128, 128, 0.2)",

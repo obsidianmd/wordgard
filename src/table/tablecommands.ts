@@ -16,7 +16,7 @@ export function tableContext(state: GardState, pos?: number) {
       cells = [cellPos.before]
     }
   } else {
-    table = state.sel.anchor.parent!.parent!
+    table = state.sel.anchor.parent!.parent!.parent!
     cells = state.selection.ranges.map(r => r.from - 1)
   }
   return cells ? {cells, map: TableMap.get(table!.node, table!.start)} : null
@@ -256,7 +256,7 @@ export const mergeCells: Command.Pure = ({state}) => {
   if (movedContent.length) changes.push({from: map.cellEnd(pos) - 1, insert: movedContent})
   return {
     changes,
-    selection: cx => CellSelection.between(cx.doc, pos, pos + cx.doc.nodeAt(pos)!.length)!,
+    selection: cx => CellSelection.create(cx.doc, pos)!,
     userEvent: "join.cell"
   }
 }
@@ -283,7 +283,11 @@ export const splitCell: Command.Pure = ({state}) => {
   if (rowSpan) changes.push({from: pos, remove: rowSpan})
   return {
     changes,
-    selection: (cx, changes) => CellSelection.between(cx.doc, pos, changes.mapPos(lastInsert, 1))!,
+    selection: (cx, changes) => {
+      let end = cx.doc.resolve(changes.mapPos(lastInsert, 1))
+      let before = end.nodeBefore
+      return before && CellSelection.create(cx.doc, pos, end.pos - before.length)
+    },
     userEvent: "split.cell"
   }
 }
