@@ -2,15 +2,47 @@ import {Plot, Node, Pos} from "wordgard/doc"
 import {GardState, Transaction} from "wordgard/state"
 import {Set, RangeSet, PointSet} from "wordgard/set"
 import {Decoration} from "./decoration"
+import {addRange} from "./changes"
 
-function offset<T>(
-  add: (value: T, from: number, to?: number) => void,
-  offset: number
-): (value: T, from: number, to?: number) => void {
-  return (v, from, to) => add(v, from + offset, to == null ? undefined : to + offset)
+type Source<D> = (plot: Plot, add: (value: D, from: number, to?: number) => void) => void
+
+type UpdatePlan = {pos: number, plot: Plot, children: UpdatePlan}[]
+
+function planFor(query: Node.Query, doc: Plot.Doc, from: number, to: number) {
+  let plan: UpdatePlan = []
+  doc.iterate(from, to, (node, pos) => {
+    if (doc.schema.matchNode(node.type, query)) {
+      let parent: UpdatePlan = plan
+      for (;;) {
+        if (!parent.length) break
+        let last = parent[parent.length - 1]
+        if (last.pos + last.plot.length <= pos) break
+        parent = last.children
+      }
+      parent.push({pos, plot: node as Plot, children: []})
+    }
+  })
+  return plan
 }
 
-type Source<D> = (plot: Plot, offset: number, add: (value: D, from: number, to?: number) => void) => void
+function runPlan<D>(plan: UpdatePlan, source: Source<D>, add: (value: D, from: number, to?: number) => void) {
+  let runPlot = ({plot, pos, children}: {plot: Plot, pos: number, children: UpdatePlan}) => {
+    let i = 0, next = children.length ? children[0] : null
+    let off = pos + 1
+    source(plot, (deco, from, to = from) => {
+      from += off; to += off
+      while (next && to > next.pos) {
+        if (from < next.pos + next.plot.length)
+          throw new Error("plotDecoration sources must not create decorations inside matching descendent nodes")
+        runPlot(next)
+        next = ++i < children.length ? children[i] : null
+      }
+      add(deco, from, to)
+    })
+    while (i < children.length) runPlot(children[i++])
+  }
+  plan.forEach(runPlot)
+}
 
 function init<D, S extends Set<D>>(
   config: Config,
@@ -18,31 +50,9 @@ function init<D, S extends Set<D>>(
   source: Source<D>,
   doc: Plot.Doc
 ): S {
-  return create(add => {
-    let {type} = config, current: SetSource<D> | undefined, currentEnd = -1
-    doc.resolve(0).walk(doc.contentLength, {
-      enterPlot(plot, pos) {
-        if (doc.schema.matchNode(plot.type, type)) {
-          if (current) {
-            current = combineSource(current, add => source(plot as Plot, pos + 1, add))
-          } else {
-            current = add => source(plot as Plot, pos + 1, add)
-            currentEnd = pos + 1 + plot.contentLength
-          }
-        }
-      },
-      leavePlot(plot, pos) {
-        if (pos == currentEnd) {
-          current!(add)
-          current = undefined
-        }
-      },
-      skip() {}
-    })
-  })
+  let plan = planFor(config.type, doc, 0, doc.length)
+  return create(add => runPlan(plan, source, add))
 }
-
-type SetSource<T> = (add: (value: T, from: number, to?: number) => void) => void
 
 function update<D, S extends Set<D>>(
   config: Config,
@@ -54,62 +64,30 @@ function update<D, S extends Set<D>>(
   let doc = tr.newDoc
   if (config.refresh?.(tr)) return init(config, create, source, doc)
   if (!tr.docChanged) return deco
-  let recreate: {from: number, to: number, add: SetSource<D>}[] = []
-  let clear: {from: number, to: number}[] = []
-  let scannedTo = 0
-
+  let updateRanges: number[] = []
   tr.changes.iterChangedRanges((fromA, toA, fromB, toB) => {
-    let clearAfter: {from: number, to: number} | undefined
-    let scanFrom = fromB, scanTo = toB
-    // Check for matching nodes whose start got replaced but that
-    // stick out of the range
+    addRange(updateRanges, fromB, toB)
+    // Check for matching nodes that stuck out of the end of this
+    // range in the old doc
     for (let scan: Pos.Plot | null = tr.startState.doc.resolve(toA).parent; scan; scan = scan.parent) {
-      if (doc.schema.matchNode(scan.node.type, config.type)) {
-        scanFrom = Math.min(scanFrom, tr.changes.mapPos(scan.before, -1))
-        scanTo = tr.changes.mapPos(scan.after, 1)
-        if (scan.before >= fromA) clearAfter = {from: scan.before, to: scan.after}
-      }
+      if (doc.schema.matchNode(scan.node.type, config.type) && scan.before >= fromA)
+        addRange(updateRanges, fromB, tr.changes.mapPos(scan.after, 1))
     }
-    if (clearAfter) clear.push(clearAfter)
-    scanFrom = Math.max(scannedTo, scanFrom)
-    if (scanFrom >= scanTo) return
-    doc.iterate(scanFrom, scanTo, (node, pos) => {
+    // Add ranges for any changed matching nodes
+    doc.iterate(fromB, toB, (node, pos) => {
       if (doc.schema.matchNode(node.type, config.type)) {
-        for (let cur of recreate) {
-          if (cur.from == pos) return
-          if (cur.from < pos && cur.to > pos) {
-            cur.add = combineSource(cur.add, add => source(node as Plot, pos + 1, add))
-            return
-          }
-        }
-        recreate.push({
-          from: pos, to: pos + node.length,
-          add: add => source(node as Plot, pos + 1, add)
-        })
+        addRange(updateRanges, pos, pos + node.length)
+        return false
       }
     })
-    scannedTo = scanTo
   })
-  if (clear.length) deco = deco.modify({replace: clear})
-  return deco.map(tr.changes, recreate as any)
-}
-
-function combineSource<T>(a: SetSource<T>, b: SetSource<T>) {
-  return (add: (value: T, from: number, to?: number) => void) => {
-    let bValues: {from: number, to: number | undefined, value: T}[] = [], i = 0
-    b((value, from, to) => bValues.push({value, from, to}))
-    a((value, from, to) => {
-      while (i < bValues.length && bValues[i].from < from) {
-        let bValue = bValues[i++]
-        add(bValue.value, bValue.from, bValue.to)
-      }
-      add(value, from, to)
-    })
-    while (i < bValues.length) {
-      let bValue = bValues[i++]
-      add(bValue.value, bValue.from, bValue.to)
-    }
+  let recreate: Set.Replacement<D>[] = []
+  for (let i = 0; i < updateRanges.length;) {
+    let from = updateRanges[i++], to = updateRanges[i++]
+    let plan = planFor(config.type, doc, from, to)
+    recreate.push({from, to, add: add => runPlan(plan, source, add)})
   }
+  return deco.map(tr.changes, recreate)
 }
 
 type Config = {
@@ -129,22 +107,24 @@ type Config = {
 
 /// Create an extension that adds decorations to plots matching the
 /// given type.
+///
+/// Decorations can only be added _inside_ the plot's content. If the
+/// matched type of plot can nest, decorations for an outer plot may
+/// not occur inside an inner plot's content range.
 export function decoratePlots(config: Config): GardState.Extension {
   let result: GardState.Extension[] = []
   let {points, ranges} = config
   if (points) {
-    let source: Source<Decoration.Point> = (plot, start, add) => points(plot, offset(add, start))
     let field = GardState.Field.define<Decoration.Point.Set>({
-      create(state) { return init<Decoration.Point, Decoration.Point.Set>(config, PointSet.create, source, state.doc) },
-      update(value, tr) { return update(config, PointSet.create, source, value, tr) }
+      create(state) { return init<Decoration.Point, Decoration.Point.Set>(config, PointSet.create, points, state.doc) },
+      update(value, tr) { return update(config, PointSet.create, points, value, tr) }
     })
     result.push(field, Decoration.Point.source.of(s => s.field(field)))
   }
   if (ranges) {
-    let source: Source<Decoration.Range> = (plot, start, add) => ranges(plot, offset(add, start))
     let field = GardState.Field.define<Decoration.Range.Set>({
-      create(state) { return init(config, RangeSet.create, source, state.doc) },
-      update(value, tr) { return update(config, RangeSet.create, source, value, tr) }
+      create(state) { return init(config, RangeSet.create, ranges, state.doc) },
+      update(value, tr) { return update(config, RangeSet.create, ranges, value, tr) }
     })
     result.push(field, Decoration.Range.source.of(s => s.field(field)))
   }
