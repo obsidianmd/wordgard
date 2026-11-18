@@ -327,7 +327,7 @@ class PointCursor<T extends PointSet.Value> implements Set.Cursor<T> {
           this.chunkI = 0
           break
         }
-        if ((pos - this.cur.pos[this.i - 1] || side - this.cur.value[this.i - 1].side) <= 0)
+        if ((pos - (this.cur.pos[this.i - 1] + this.cur.start) || side - this.cur.value[this.i - 1].side) <= 0)
           break
       }
     } else if (diff <= 0) {
