@@ -49,10 +49,11 @@ describe("PointSet", () => {
   })
 
   it("doesn't append to reused chunks", () => {
-    let set = PointSet.create([[V.a, 0], [V.a, 0], [V.a, 0]])
+    let set = PointSet.create<V>(add => { for (let i = 0; i < 300; i++) add(V.a, 0) })
+    let setStr = str(set)
     let modified = set.modify({add: [[new V("b", 1), 0], [new V("c", -1), 0]]})
-    ist(str(modified), "c@0 a@0 a@0 a@0 b@0")
-    ist(str(set), "a@0 a@0 a@0")
+    ist(str(modified), "c@0 " + setStr + " b@0")
+    ist(str(set), setStr)
   })
 
   it("can be mapped", () => {
