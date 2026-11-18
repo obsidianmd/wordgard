@@ -776,7 +776,7 @@ function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: bool
     if (a.keep && b.keep) {
       // Move across ranges skipped by both sets.
       let len = Math.min(a.len, b.len)
-      let mods = before ? a.mods : filterMods(a.mods, b.mods)
+      let mods = before ? transformMods(a.mods, b.mods) : a.mods
       addSection(sections, data, len, mods ? -2 : -1, mods)
       a.forward(len)
       b.forward(len)
@@ -876,17 +876,33 @@ function combineMods(a: null | readonly Modification[], b: null | readonly Modif
   return !a ? b : !b ? a : a.concat(b)
 }
 
-function filterMods(mods: null | readonly Modification[], against: null | readonly Modification[]) {
+// Transform sets of modifications across each other. The effect of
+// applying b and then transformMods(a, b) should be the same as the
+// effect of applying a and then b.
+function transformMods(mods: null | readonly Modification[], against: null | readonly Modification[]) {
   if (!mods || !against) return mods
-  return mods.filter(m => !against!.some(a => modCancels(a, m)))
-}
-
-function modCancels(mod: Modification, other: Modification) {
-  if ("add" in other) {
-    return "add" in mod ? mod.add.type == other.add.type && !mod.add.type.set : mod.remove.eq(other.add)
-  } else {
-    return "add" in mod && mod.add.eq(other.remove)
+  let result: Modification[] = []
+  scan: for (let mod of mods) {
+    let mark = "add" in mod ? mod.add : mod.remove
+    for (let other of against) {
+      let otherMark = "add" in other ? other.add : other.remove
+      if (otherMark.type != mark.type) continue
+      if (!mark.type.set) {
+        // Always drop normal-valued marks except when adding a
+        // different one before a removal
+        if (!("add" in mod && "remove" in other && !mark.eq(otherMark)))
+          continue scan
+      } else {
+        // For set-valued ones, remove the values that the other
+        // modification affects
+        let left = subtractSet(mark.value as any, otherMark.value as any, mark.type.set)
+        if (!left.length) continue scan
+        mark = mark.type.of(left)
+      }
+    }
+    result.push("add" in mod ? {add: mark} : {remove: mark})
   }
+  return result.length ? result : null
 }
 
 function invertMods(mods: readonly Modification[], target: Node.Tag): readonly Modification[] {
