@@ -256,6 +256,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
         curA.next(true)
         curB.next(true)
         startA = startB = 1e9
+        continue
       } else {
         upto = Math.min(endA, endB)
         if (!curA.value!.eq(curB.value!)) change(startA, upto)
