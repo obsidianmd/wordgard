@@ -629,7 +629,7 @@ function setUneditable(dom: Element | Text) {
   }
   let cur = (dom as HTMLElement).contentEditable
   if (cur == "false") return true
-  if (cur != "inherit" || !/^(br|hr|img|input|wbr)$/i.test(dom.nodeName)) return false
+  if (cur != "inherit" || /^(br|hr|img|input|wbr)$/i.test(dom.nodeName)) return false
   ;(dom as HTMLElement).contentEditable = "false"
   return true
 }
