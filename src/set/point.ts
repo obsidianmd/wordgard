@@ -77,10 +77,10 @@ class SetBuilder<T extends PointSet.Value> {
             nextChunk = this.chunks[chunkI] = new Chunk(nextChunk.start, nextChunk.pos.slice(), nextChunk.value.slice())
           nextI = nextChunk.value.length - 1
         }
-        if ((pos - nextChunk.pos[nextI] || value.side - nextChunk.value[nextI].side) >= 0) break
-        chunk.pos[i] = nextChunk.pos[nextI]
+        if ((pos - (nextChunk.pos[nextI] + nextChunk.start) || value.side - nextChunk.value[nextI].side) >= 0) break
+        chunk.pos[i] = (nextChunk.pos[nextI] + nextChunk.start) - chunk.start
         chunk.value[i] = nextChunk.value[nextI]
-        nextChunk.pos[nextI] = pos
+        nextChunk.pos[nextI] = pos - nextChunk.start
         nextChunk.value[nextI] = value
         i = nextI
         chunk = nextChunk
