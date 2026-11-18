@@ -171,6 +171,7 @@ export const baseStyles = buildTheme("." + styleID, {
     backgroundColor: "var(--wg-panel-color)",
     font: "var(--wg-dialog-font)",
   },
+  ".wg-panels-raised": { zIndex: 450 },
   ".wg-panels-top": { top: "0" },
   ".wg-panels-bottom": { bottom: "0" },
 
