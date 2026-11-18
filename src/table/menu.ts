@@ -1,7 +1,7 @@
 import {Wordgard} from "wordgard/editor"
 import {GardState, GardSelection} from "wordgard/state"
 import {Table, TableRow, RowSpan, ColSpan} from "wordgard/types"
-import {Plot, ChangeSet} from "wordgard/doc"
+import {Plot} from "wordgard/doc"
 import {Command, Menu} from "wordgard/command"
 import {tablePhrases} from "wordgard/phrases"
 import {cellTag, headerCellTag, addRow, deleteRow as _deleteRow, addColumn,
@@ -99,12 +99,13 @@ function insertTable(wg: Wordgard, width: number, height: number) {
   for (let i = 0; i < width; i++) cells.push(cellNode)
   let row = TableRow.create(cells), rows: Plot[] = []
   for (let i = 0; i < height; i++) rows.push(row)
-  let table = Table.create(rows), {from, to} = state.selection.replacementRange
-  let changes = ChangeSet.create(state.doc, {from, to, insert: [table], fit: true})
-  let tablePos = changes.findInserted(tag => tag.type == Table.type)
+  let table = Table.create(rows)
   wg.dispatch({
-    changes,
-    selection: cx => GardSelection.near(cx, tablePos == null ? from : tablePos + 3, 1),
+    changes: state.selection.replaceWith(table),
+    selection: (cx, changes) => {
+      let tablePos = changes.findInserted(tag => tag.type == Table.type)
+      return GardSelection.near(cx, tablePos == null ? changes.mapPos(state.selection.from, 1) : tablePos + 3, -1)
+    },
     userEvent: "insert.table"
   })
 }

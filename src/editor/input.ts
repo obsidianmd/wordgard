@@ -66,6 +66,7 @@ export class InputState {
   lastTouchEvent: TouchEvent | null = null
   lastScrollTop = 0
   lastScrollLeft = 0
+  lastFocus = 0
 
   lastContextMenu: number = 0
   scrollHandlers: ((event: Event) => boolean | void)[] = []
@@ -467,7 +468,7 @@ export function doPaste(
   targetRange: {from: number, to: number} | null,
   event: ClipboardEvent | null
 ) {
-  let {from, to} = targetRange || wg.state.selection.replacementRange
+  let {from, to} = targetRange || wg.state.selection
   let slice = readClipboard(wg.state, html, text, wg.state.doc.resolve(from), wg.inputState.shiftKey)
   if (!targetRange) {
     if (!event) {
@@ -707,7 +708,7 @@ function copy(wg: Wordgard, event: ClipboardEvent) {
     if (event.type == "cut" && !state.readOnly)
       wg.dispatch({
         changes: state.selection.ranges.map(r => ({from: r.from, to: r.to, fit: true})),
-        selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.from, -1), 1),
+        selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.from, -1)),
         scrollIntoView: true,
         userEvent: "delete.cut"
       })
@@ -955,6 +956,7 @@ const baseObservers: {[e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
       wg.scrollDOM.scrollTop = wg.inputState.lastScrollTop
       wg.scrollDOM.scrollLeft = wg.inputState.lastScrollLeft
     }
+    wg.inputState.lastFocus = Date.now()
     updateForFocusChange(wg)
   },
 

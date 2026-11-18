@@ -1,9 +1,9 @@
-import {Plot, Node, Leaf, ChangeSet, Mark, Pos, ValidationError, Slice} from "wordgard/doc"
+import {Plot, Node, Leaf, ChangeSet, Mark, Pos, ValidationError, Slice, Token} from "wordgard/doc"
 import {findClusterBreak} from "@marijn/find-cluster-break"
 import {TextblockMap} from "./textblock"
 import type {GardState} from "./state"
 
-type wgNode = Node
+import wgNode = Node
 
 export class SelectionType {
   constructor(
@@ -47,17 +47,6 @@ export abstract class GardSelection {
   /// this is just the selection's main `from` to `to`, but custom
   /// selection implementations can override it.
   get ranges(): readonly {from: number, to: number}[] { return [this] }
-
-  /// The range that should be used when replacing this selection with
-  /// other content (for example when typing or pasting over it) or
-  /// deleting it. The default implementation returns `this.from` to
-  /// `this.to`.
-  get replacementRange(): {from: number, to: number} { return this }
-
-  /// This can be overridden to control the DOM selection created for
-  /// a selection. The default is to just return the selection's own
-  /// head and anchor.
-  get domSelection(): {head: number, headSide: -1 | 1, anchor: number, anchorSide: -1 | 1} { return this }
 
   /// Create a content slice and context from this selection. The
   /// default implementation concatenates the slices for the
@@ -106,9 +95,8 @@ export abstract class GardSelection {
   check(config: GardState.Configuration, doc: Plot.Doc) {
     if (!config.staticFacet(GardSelection.selectionType).some(t => this instanceof t.cls))
       throw new RangeError("Unsupported selection type")
-    for (let {from, to} of this.ranges)
-      if (from < 0 || to > doc.length)
-        throw new RangeError(`Selection out of document range`)
+    if (this.from < 0 || this.to > doc.length)
+      throw new RangeError(`Selection out of document range`)
   }
 
   /// @internal
@@ -140,10 +128,12 @@ export abstract class GardSelection {
     return GardSelection.Text.createInner(pos, pos, side, true, goalColumn)
   }
 
-  /// Find a normal cursor near the given position.
-  static near(cx: GardSelection.Context, pos: number, side: -1 | 1 = 1, goalColumn?: number) {
-    let norm = findNormalAt(cx, pos, side)
-    return GardSelection.cursor(norm.pos, norm.side, goalColumn)
+  /// Find a normal cursor near the given position. `bias` gives the
+  /// direction in which to scan first. If there's no normal position
+  /// in that direction, the other side will also be tried.
+  static near(cx: GardSelection.Context, pos: number, side: -1 | 1 = 1, bias: -1 | 1 = 1) {
+    let norm = findNormalAt(cx, pos, bias ?? side, side)
+    return GardSelection.cursor(norm.pos, norm.side)
   }
 
   /// Create a text selection.
@@ -184,6 +174,21 @@ export abstract class GardSelection {
     return found && GardSelection.cursor(found.pos, found.side)
   }
 
+  /// Return a change set that replaces the selection with the given
+  /// content, inserting it at the position of the selection's main
+  /// range, and deleting any other ranges.
+  replaceWith(content: wgNode | readonly Token[] | Slice): ChangeSet.Spec {
+    if (!(content instanceof Slice) && !Array.isArray(content)) content = [content as any as wgNode]
+    let changes: ChangeSet.Change[] = []
+    for (let {from, to} of this.ranges) {
+      if (from == this.from && to == this.to)
+        changes.push({from, to, insert: content as Slice | readonly Token[], fit: true})
+      else if (from != to)
+        changes.push({from, to})
+    }
+    return {correct: changes}
+  }
+
   /// Find a normal selection at the start of the document or the
   /// given textblock.
   static atStart(cx: GardSelection.Context, block?: Pos.Plot) {
@@ -195,7 +200,7 @@ export abstract class GardSelection {
   static atEnd(cx: GardSelection.Context, block?: Pos.Plot) {
     let found = block ? {pos: block.end, side: 1} as const
       : cx.doc.inlineContent ? {pos: cx.doc.length, side: 1} as const
-      : findNormalAt(cx, cx.doc.length, -1)
+      : findNormalAt(cx, cx.doc.length, -1, -1)
     return GardSelection.cursor(found.pos, found.side)
   }
 
@@ -421,13 +426,6 @@ export namespace GardSelection {
       return this.selection.ranges.map(({from, to}) => ({from: this.doc.resolve(from), to: this.doc.resolve(to)}))
     }
 
-    /// The resolved replacement range.
-    get replacementRange(): {from: Pos, to: Pos} {
-      let repl = this.selection.replacementRange
-      if (repl.from == this.selection.from && repl.to == this.selection.to) return this
-      return {from: this.doc.resolve(repl.from), to: this.doc.resolve(repl.to)}
-    }
-
     /// The active marks for this selection. If this is a cursor
     /// selection with explicitly stored {@link
     /// GardSelection.Text.Spec.marks marks}, those are returned.
@@ -435,8 +433,7 @@ export namespace GardSelection {
     /// content inserted in the selection's position, based on
     /// spanning marks on the surrounding nodes.
     get activeMarks(): Mark.Set {
-      let repl = this.replacementRange
-      return (this.selection instanceof GardSelection.Text && this.selection.marks) || repl.from.marks(repl.to)
+      return (this.selection instanceof GardSelection.Text && this.selection.marks) || this.from.marks(this.to)
     }
   }
 
@@ -450,7 +447,7 @@ export function cursorAtStart(cx: GardSelection.Context, block?: Pos.Plot) {
   let found = block
     ? {pos: block.start, side: -1} as const
     : cx.doc.inlineContent ? {pos: 0, side: -1} as const
-    : findNormalAt(cx, 0, 1)
+    : findNormalAt(cx, 0, 1, 1)
   return GardSelection.cursor(found.pos, found.side)
 }
 
@@ -525,14 +522,14 @@ function scanNormalFrom(
   }
 }
 
-function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {pos: number, side: -1 | 1} {
+function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1, defaultSide: -1 | 1): {pos: number, side: -1 | 1} {
   let res = cx.doc.resolve(pos), lowest = pos
   if (res.inText) {
     let text = res.parent.node.content[res.index].tag.param as string
     let off = bias > 0 ? findClusterBreak(text, res.inText - 1) : findClusterBreak(text, res.inText + 1, false)
     pos += off - res.inText
     if (off > 0 && off < text.length)
-      return {pos, side: bias}
+      return {pos, side: defaultSide}
     res = Pos.create(res.parent, pos, res.index + (off ? 1 : 0), 0)
   }
   // Scan first in direction bias, then the other one, looking for a
@@ -541,7 +538,7 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {po
   for (let pass = 0; pass < 2; pass++) {
     let dir: -1 | 1 = !pass ? bias : -bias as -1 | 1, {parent, index} = res, curPos = pos
     for (;;) {
-      if (parent.node.inlineContent) return {pos: curPos, side: bias}
+      if (parent.node.inlineContent) return {pos: curPos, side: defaultSide}
       if (index == (dir > 0 ? parent.node.content.length : 0)) {
         if (isBarrier(cx, parent.node) || !parent.parent) break
         lowest = curPos = curPos + dir
@@ -558,7 +555,7 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): {po
       }
     }
   }
-  return {pos: lowest, side: bias}
+  return {pos: lowest, side: defaultSide}
 }
 
 function skipWord(cx: GardSelection.Context, start: number, side: -1 | 1, forward: boolean) {

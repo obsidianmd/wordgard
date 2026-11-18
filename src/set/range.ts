@@ -214,7 +214,9 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
       for (;;) {
         let {cur} = cursor
         if (!cur) return
-        if (cursor.i == 0 && cur.end <= pos && !filter) {
+        if (cursor.i == 0 && cur.end <= pos && !filter &&
+            (cur.value.length > (ChunkSize.Max >> 1) ||
+             cursor.chunkI < this.chunks.length - 1 && this.chunks[cursor.chunkI + 1].start <= pos)) {
           build.addChunk(cur)
           cursor.next(true)
         } else if (cursor.from > pos) {
@@ -256,6 +258,7 @@ export class RangeSet<T extends RangeSet.Value> extends Set<T> {
         curA.next(true)
         curB.next(true)
         startA = startB = 1e9
+        continue
       } else {
         upto = Math.min(endA, endB)
         if (!curA.value!.eq(curB.value!)) change(startA, upto)

@@ -89,6 +89,9 @@ describe("GardSelection", () => {
     it("creates positions around whitespace-preserving nodes", () =>
       testNormal(doc(0, pre(1, "a", 2), p(3), pre(4), 5)))
 
+    it("stops between two whitespace-preserving textblocks", () =>
+      testNormal(doc(0, pre(1, "x", 2), 3, pre(4, "y", 5), 6)))
+
     it("handles inline nodes", () =>
       testNormal(doc(p(0, "a", 1, $img, 2, "b", 3), p(4, $img, 5))))
 
@@ -168,8 +171,8 @@ describe("GardSelection", () => {
   describe("near", () => {
     it("will skip out of a surrogate pair", () => {
       let s = GardState.create({doc: doc(p("🐜"))})
-      ist(GardSelection.near(s, 2, -1).head, 1)
-      ist(GardSelection.near(s, 2, 1).head, 3)
+      ist(GardSelection.near(s, 2, 1, -1).head, 1)
+      ist(GardSelection.near(s, 2, 1, 1).head, 3)
     })
 
     it("will move to the bottom of a block separation", () => {

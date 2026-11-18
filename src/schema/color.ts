@@ -86,6 +86,7 @@ export class ColorPicker {
         this.move(Math.max(0, Math.min(this.options.length - 1, next)))
       } else if (e.key == " " || e.key == "Enter") {
         this.finish(this.options[this.selPos].getAttribute("data-value")!)
+        this.wg.focus()
       } else {
         return
       }
@@ -267,7 +268,6 @@ const colorPicker = Menu.CustomControl.define({
     return ColorPicker.create(wg, color => {
       done()
       setColor(wg, Color, color)
-      wg.focus()
     })
   }
 })
@@ -307,7 +307,6 @@ const backgroundPicker = Menu.CustomControl.define({
     return ColorPicker.create(wg, color => {
       done()
       setColor(wg, BackgroundColor, color)
-      wg.focus()
     })
   }
 })

@@ -60,7 +60,7 @@ export namespace Set {
   /// be the same as `from`, and the points must be ordered by
   /// position and {@link PointSet.Value.side side}.
   export type Source<T> = Iterable<[T, number, number?]>
-    | ((add: (value: T, pos: number, to?: number) => void) => void)
+    | ((add: (value: T, from: number, to?: number) => void) => void)
 
   /// Represents a replaced section in a set.
   export type Replacement<T> = {
