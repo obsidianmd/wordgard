@@ -16,18 +16,19 @@ type CursorInfo = {left: number, top: number, size: number, horiz: boolean, styl
 
 class CursorStyle {
   constructor(
-    readonly height: number,
+    readonly height: number | null,
     readonly align: string,
     readonly color: string,
     readonly bold: boolean,
     readonly italic: boolean
   ) {}
 
-  static read(node: Element | Text, height: number) {
+  static read(node: Element | Text, height: number | null, readAlign = true) {
     let win = node.ownerDocument.defaultView || window
     let elt = isElt(node) ? node : node.parentNode as Element
     let style = win.getComputedStyle(elt)
-    return new CursorStyle(height, style.verticalAlign, style.color, +style.fontWeight > 400, style.fontStyle == "italic")
+    return new CursorStyle(height, readAlign ? style.verticalAlign : "",
+                           style.color, +style.fontWeight > 400, style.fontStyle == "italic")
   }
 
   eq(other: CursorStyle | null) {
@@ -136,17 +137,17 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
     })
   }
 
-  let finish = (style: CursorStyle | null, vertRect?: DOMRect) => {
-    if (style && (!plugin.cached || plugin.cached.style != style))
+  let finish = (style: CursorStyle, vertRect?: DOMRect) => {
+    if (style && style.height != null && (!plugin.cached || plugin.cached.style != style))
       plugin.cached = {style, marks, parent: sel.head.parent.node.tag}
-    let height = style ? style.height : rect.height
+    let height = style.height ?? rect.height
     let bot = rect.bottom
     if (vertRect && vertOverlap(vertRect, rect)) {
       bot = vertRect.bottom
-    } else {
+    } else if (style.height != null) {
       let win = ref.dom.ownerDocument.defaultView || window
       let refAlign = win.getComputedStyle(isElt(ref.dom) ? ref.dom : ref.dom.parentNode as Element).verticalAlign
-      if (style && refAlign != style.align) {
+      if (refAlign != style.align) {
         bot += alignOffset(refAlign, rect.height) - alignOffset(style.align, style.height)
       }
     }
@@ -184,11 +185,14 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
   }
   if (foundNode) return finish(CursorStyle.read(foundNode, foundRect!.height), foundRect)
 
+  if (!marks.length) {
+    let parent = wg.docTile.resolve(pos, -1)
+    return finish(CursorStyle.read(parent.dom, null, false))
+  }
+
   // Check cache
   if (plugin.cached && Mark.sameSet(plugin.cached.marks, marks) && plugin.cached.parent.eq(sel.head.parent.node.tag))
     return finish(plugin.cached.style)
-
-  if (!marks.length) return finish(null)
 
   // Create a temporary node to measure
   let target = sel.head.parent.node.isDoc ? wg.contentDOM : wg.nodeDOM(sel.head.parent.before)!
