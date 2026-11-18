@@ -143,7 +143,7 @@ const languageWidget = Widget.define<{options: readonly string[], value: string 
           changes: value ? {from: pos - 1, add: CodeBlockLanguage.of(value)} :
             {from: pos - 1, remove: CodeBlockLanguage.isInSet(block.tag.marks)!}
         })
-        wg.focus()
+        if (wg.root.activeElement == sel) wg.focus()
       }
     }
     return sel

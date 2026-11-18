@@ -96,7 +96,7 @@ export function enterInCode(state: GardState): Transaction.Spec | false {
 /// textblock is the first child of a list item, also split that item,
 /// unless `splitListItem` is false.
 export function splitTextblock(state: GardState, splitListItem = true): Transaction.Spec | false {
-  let {from, to} = state.sel.replacementRange, {schema} = state.doc
+  let {from, to} = state.sel, {schema} = state.doc
   let before = from.textblockParent
   if (!before || !before.parent || before.node.type.isolating) return false
   let tokens: Token[] = []
@@ -157,7 +157,7 @@ export function deleteSelection(state: GardState): Transaction.Spec | false {
       local: true
     },
     selection: (cx, changes) => state.selection instanceof GardSelection.Text
-      ? GardSelection.near(cx, changes.mapPos(state.selection.head, -1), 1)
+      ? GardSelection.near(cx, changes.mapPos(state.selection.head, -1), -1)
       : state.selection.map(changes, cx),
     scrollIntoView: true,
     userEvent: "delete.selection"
@@ -173,7 +173,7 @@ export function deleteEmptyPlot(state: GardState, dir: -1 | 1 = -1): Transaction
   if (!plot.parent || plot.start < plot.end) return false
   return {
     changes: {from: plot.before, to: plot.after, fit: true},
-    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.head), dir),
+    selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.head), dir, dir),
     scrollIntoView: true,
     userEvent: dir < 0 ? "delete.backward" : "delete.forward"
   }

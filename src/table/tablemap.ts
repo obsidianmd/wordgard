@@ -71,11 +71,10 @@ export class TableMap {
       }
     }
     if (before > -1) {
-      let beforeEnd = cellEnds.get(before)!
-      if (beforeEnd > localPos || after < 0 || bias < 0)
-        return {from: before + this.start, to: beforeEnd + this.start}
+      if (cellEnds.get(before)! > localPos || after < 0 || bias < 0)
+        return before + this.start
     }
-    return {from: after + this.start, to: cellEnds.get(after)! + this.start}
+    return after + this.start
   }
 
   /// Find the end position of the given cell.

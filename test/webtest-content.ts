@@ -341,6 +341,14 @@ describe("DocTile", () => {
       ist(html(node), "<p><span>x</span>ab<span>y</span>c</p>")
     })
 
+    it("makes widgets uneditable", () => {
+      let w = Widget.create({render: () => span("x")})
+      let node = render(doc(p("abc")), Decoration.Point.source.of(state => {
+        return Decoration.Point.set([[Decoration.Point.widget(w), 1]])
+      }))
+      ist(node.dom.querySelector("span")?.getAttribute("contenteditable"), "false")
+    })
+
     it("can update widgets from a point set", () => {
       let f = GardState.Field.define({
         create: () => Decoration.Point.set([[Decoration.Point.widget(inlineWidget.of("x")), 1]]),

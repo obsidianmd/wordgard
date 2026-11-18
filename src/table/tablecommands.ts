@@ -16,7 +16,7 @@ export function tableContext(state: GardState, pos?: number) {
       cells = [cellPos.before]
     }
   } else {
-    table = state.sel.anchor.parent!.parent!
+    table = state.sel.anchor.parent!.parent!.parent!
     cells = state.selection.ranges.map(r => r.from - 1)
   }
   return cells ? {cells, map: TableMap.get(table!.node, table!.start)} : null
@@ -99,7 +99,7 @@ export const deleteColumn: Command.Pure = ({state}) => {
   if (rect.startCol == 0 && rect.endCol == map.width) {
     return {
       changes: {from: map.tablePos, to: map.tablePos + map.table.length, fit: true},
-      selection: cx => GardSelection.near(cx, map.tablePos, -1),
+      selection: cx => GardSelection.near(cx, map.tablePos, 1, -1),
       userevent: "delete.table"
     }
   }
@@ -141,7 +141,7 @@ export const deleteColumn: Command.Pure = ({state}) => {
   }
   return {
     changes,
-    selection: cx => GardSelection.near(cx, delPos, -1),
+    selection: cx => GardSelection.near(cx, delPos, -1, -1),
     userEvent: "delete.column"
   }
 }
@@ -187,7 +187,7 @@ export const deleteRow: Command.Pure = ({state}) => {
   if (rect.startRow == 0 && rect.endRow == map.height) {
     return {
       changes: {from: map.tablePos, to: map.tablePos + map.table.length, fit: true},
-      selection: cx => GardSelection.near(cx, map.tablePos, -1),
+      selection: cx => GardSelection.near(cx, map.tablePos, 1, -1),
       userEvent: "delete.table"
     }
   }
@@ -227,7 +227,7 @@ export const deleteRow: Command.Pure = ({state}) => {
   }
   return {
     changes,
-    selection: cx => GardSelection.near(cx, delPos, -1),
+    selection: cx => GardSelection.near(cx, delPos, 1, -1),
     userEvent: "delete.row"
   }
 }
@@ -256,7 +256,7 @@ export const mergeCells: Command.Pure = ({state}) => {
   if (movedContent.length) changes.push({from: map.cellEnd(pos) - 1, insert: movedContent})
   return {
     changes,
-    selection: cx => CellSelection.between(cx.doc, pos, pos + cx.doc.nodeAt(pos)!.length)!,
+    selection: cx => CellSelection.create(cx.doc, pos)!,
     userEvent: "join.cell"
   }
 }
@@ -283,7 +283,11 @@ export const splitCell: Command.Pure = ({state}) => {
   if (rowSpan) changes.push({from: pos, remove: rowSpan})
   return {
     changes,
-    selection: (cx, changes) => CellSelection.between(cx.doc, pos, changes.mapPos(lastInsert, 1))!,
+    selection: (cx, changes) => {
+      let end = cx.doc.resolve(changes.mapPos(lastInsert, 1))
+      let before = end.nodeBefore
+      return before && CellSelection.create(cx.doc, pos, end.pos - before.length)
+    },
     userEvent: "split.cell"
   }
 }
