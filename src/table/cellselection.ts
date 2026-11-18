@@ -24,7 +24,7 @@ function getCellDeco(state: GardState): Decoration.Point.Set {
 
 const tableSelectionFilter = GardState.prec.low(Transaction.extender.of(tr => {
   let normalized = CellSelection.normalize(tr.newSelection, tr.newDoc)
-  return normalized ? {selection: normalized} : null
+  return normalized ? {selection: normalized, sequential: true} : null
 }))
 
 type Dir = "left" | "right" | "forward" | "backward" | "up" | "down"
