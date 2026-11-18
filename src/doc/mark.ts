@@ -8,6 +8,7 @@ function remove<T>(arr: readonly T[], index: number) {
   return arr.length == 1 ? none : arr.filter((_, i) => i != index)
 }
 
+// Return a sorted set of elements that are in a or b.
 export function addSet<T>(a: readonly T[], b: readonly T[], compare: (a: T, b: T) => number) {
   let result: T[] = []
   for (let i = 0, j = 0;;) {
@@ -18,13 +19,14 @@ export function addSet<T>(a: readonly T[], b: readonly T[], compare: (a: T, b: T
       result.push(a[i++])
     } else {
       let cmp = compare(a[i], b[j])
-      if (cmp == 0) i++
+      if (cmp == 0) { result.push(a[i++]); j++ }
       else if (cmp < 0) result.push(a[i++])
       else result.push(b[j++])
     }
   }
 }
 
+// Return the elements in a that are not in b.
 export function subtractSet<T>(a: readonly T[], b: readonly T[], compare: (a: T, b: T) => number) {
   let result: T[] = []
   for (let i = 0, j = 0;;) {
@@ -33,7 +35,7 @@ export function subtractSet<T>(a: readonly T[], b: readonly T[], compare: (a: T,
       result.push(a[i++])
     } else {
       let cmp = compare(a[i], b[j])
-      if (cmp == 0) i++
+      if (cmp == 0) { i++; j++ }
       else if (cmp < 0) result.push(a[i++])
       else j++
     }
