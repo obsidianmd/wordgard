@@ -457,7 +457,7 @@ function findNextChild(children: readonly BarElement[], child: BarElement, dir: 
     else if (i >= children.length) i = 0
     if (i == index) return null
     let child = children[i]
-    if (!(child.flags & F.Hidden)) return child
+    if (!(child.flags & (F.Hidden | F.Disabled))) return child
   }
 }
 
