@@ -74,7 +74,7 @@ export function writeClipboard(state: GardState, slice: Slice, data: DataTransfe
 }
 
 function isOpen(elt: Element) {
-  return (elt.getAttribute("wg-open") || null) as "start" | "end" | "start end" | null
+  return (elt.getAttribute("wg-open") || "") as "start" | "end" | "start end" | ""
 }
 
 export function readClipboard(state: GardState, html: string, text: string, targetContext: Pos, plain: boolean): Slice | null {
@@ -92,7 +92,7 @@ export function readClipboard(state: GardState, html: string, text: string, targ
     let fromWordgard = dom.querySelector("[wg-content=true]")
     slice = parse.slice(state.schema, dom, {
       collapseWhiteSpace: !fromWordgard,
-      isOpen: fromWordgard ? isOpen : undefined
+      isOpen: fromWordgard ? isOpen : (e, tag) => tag.type.isolating ? "" : "start end"
     })
   }
   for (let filter of state.facet(clipboardInputFilter)) slice = filter(slice, state)
