@@ -48,7 +48,7 @@ function liftBlock(state: GardState, block: Pos.Plot): Transaction.Spec | false 
     else before.push(Plot.End)
     if (index < level.node.content.length - 1) atEnd = false
     if (atEnd) end++
-    else after.unshift(level.node.tag.split(false))
+    else after.unshift(atStart ? level.node.tag : level.node.tag.split(false))
   }
   return false
 }
