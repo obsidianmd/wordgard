@@ -20,7 +20,7 @@ const tableTheme = Wordgard.styles({
     textAlign: "left"
   },
 
-  ".wg-selected-cell": {
+  ".wg-selected-cell, .wg-selected-table": {
     background: "#ddf",
     "&::selection, & ::selection": {backgroundColor: "transparent"},
     "& :focus ::selection, & :focus::selection": {backgroundColor: "Highlight"}

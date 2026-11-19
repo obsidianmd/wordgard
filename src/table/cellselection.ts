@@ -16,10 +16,22 @@ const cellSelectionDeco = GardState.Field.define<Decoration.Point.Set>({
 })
 
 const selectedCell = Decoration.Point.attributes({class: "wg-selected-cell"})
+const selectedTable = Decoration.Point.attributes({class: "wg-selected-table"})
 
 function getCellDeco(state: GardState): Decoration.Point.Set {
-  if (!(state.selection instanceof CellSelection)) return Decoration.Point.none
-  return Decoration.Point.set(state.selection.ranges.map(({from}) => [selectedCell, from - 1]))
+  let {selection} = state
+  if (selection instanceof CellSelection)
+    return Decoration.Point.set(selection.ranges.map(({from}) => [selectedCell, from - 1]))
+  if (selection.empty) return Decoration.Point.none
+  return Decoration.Point.set(add => {
+    state.doc.iterate(selection.from, selection.to, (node, pos) => {
+      if (node.type == Table.type && pos >= selection.from && pos + node.length <= selection.to) {
+        add(selectedTable, pos)
+        return false
+      }
+      return node.type.isPlot && !node.type.inlineContent
+    })
+  })
 }
 
 const tableSelectionFilter = GardState.prec.low(Transaction.extender.of(tr => {
