@@ -46,7 +46,7 @@ function cursorCommand(wg: Wordgard, {dir, extend}: {dir: Dir, extend?: boolean}
     newSel = selection.moveHead(state.doc, dir)
     if (!newSel) {
       let forward = dir == "forward" || dir == "down", dirSig: -1 | 1 = forward ? 1 : -1
-      let table = state.sel.from.parent!.parent!
+      let table = state.doc.resolve(selection.anchorCell).parent!.parent!
       let next = GardSelection.near(state, forward ? table.after : table.before, -dirSig as -1 | 1, dirSig)
       newSel = GardSelection.range(forward ? table.before : table.after, next.head, next.headSide)
     }
