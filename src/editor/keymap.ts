@@ -179,8 +179,8 @@ export namespace KeyBinding {
   ///  - `ArrowRight` to {@link command.moveByUnit} (`{dir: "right"}`)
   ///  - `ArrowUp` to {@link command.moveByLine} (`{dir: "up"}`)
   ///  - `ArrowDown` to {@link command.moveByLine} (`{dir: "down"}`)
-  ///  - `Ctrl-AllowLeft` (`Cmd-ArrowLeft` on MacOS) to {@link command.moveByWord} (`{dir: "left"}`)
-  ///  - `Ctrl-AllowRight` (`Cmd-ArrowRight` on MacOS) to {@link command.moveByWord} (`{dir: "right"}`)
+  ///  - `Ctrl-AllowLeft` (`Alt-ArrowLeft` on MacOS) to {@link command.moveByWord} (`{dir: "left"}`)
+  ///  - `Ctrl-AllowRight` (`Alt-ArrowRight` on MacOS) to {@link command.moveByWord} (`{dir: "right"}`)
   ///  - `Cmd-ArrowUp` (MacOS) to {@link command.moveToDocSide} (`{side: "start"}`)
   ///  - `Cmd-ArrowDown` (MacOS) to {@link command.moveToDocSide} (`{side: "end"}`)
   ///  - `Ctrl-ArrowUp` (MacOS) to {@link command.moveByPage} (`{dir: "up"}`)
@@ -229,9 +229,9 @@ export namespace KeyBinding {
      shift: Command.bind(moveByLine, {dir: "down", extend: true})},
     {key: "ArrowUp", run: Command.bind(moveByLine, {dir: "up"}),
      shift: Command.bind(moveByLine, {dir: "up", extend: true})},
-    {key: "Mod-ArrowLeft", run: Command.bind(moveByWord, {dir: "left"}),
+    {key: "Ctrl-ArrowLeft", mac: "Alt-ArrowLeft", run: Command.bind(moveByWord, {dir: "left"}),
      shift: Command.bind(moveByWord, {dir: "left", extend: true})},
-    {key: "Mod-ArrowRight", run: Command.bind(moveByWord, {dir: "right"}),
+    {key: "Ctrl-ArrowRight", mac: "Alt-ArrowRight", run: Command.bind(moveByWord, {dir: "right"}),
      shift: Command.bind(moveByWord, {dir: "right", extend: true})},
     {mac: "Cmd-ArrowLeft", run: Command.bind(moveToLineSide, {dir: "left"}),
      shift: Command.bind(moveToLineSide, {dir: "left", extend: true})},
