@@ -280,7 +280,6 @@ export const ImageSize = Mark.Type.define<number>("ImageSize", {
 /// `text-align` style.
 export const Alignment = Mark.Type.define<"end" | "center">("Alignment", {
   target: [G.Textblock, Figure],
-  keepOnSplit: true,
   keepOnTypeChange: true,
   shape: {attribute: "style", value: align => `text-align: ${align}`},
   parseRules: [
@@ -294,7 +293,6 @@ export const Alignment = Mark.Type.define<"end" | "center">("Alignment", {
 /// direction. Rendered using the `dir` attribute.
 export const Direction = Mark.Type.define<"ltr" | "rtl" | "auto">("Direction", {
   target: G.Textblock,
-  keepOnSplit: true,
   keepOnTypeChange: true,
   validate: val => {
     if (val != "ltr" && val != "rtl" && val != "auto") throw new ValidationError(`Invalid direction value: ${val}`)

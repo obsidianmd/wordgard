@@ -48,7 +48,7 @@ function liftBlock(state: GardState, block: Pos.Plot): Transaction.Spec | false 
     else before.push(Plot.End)
     if (index < level.node.content.length - 1) atEnd = false
     if (atEnd) end++
-    else after.unshift(level.node.tag.split(false))
+    else after.unshift(atStart ? level.node.tag : level.node.tag.split(false))
   }
   return false
 }
@@ -171,6 +171,11 @@ export function deleteEmptyPlot(state: GardState, dir: -1 | 1 = -1): Transaction
   if (!state.selection.isCursor) return false
   let plot = state.sel.head.parent
   if (!plot.parent || plot.start < plot.end) return false
+  // Check whether the deletion can be done without violating schema constraints
+  for (let parent: Pos.Plot | null = plot.parent;; parent = parent.parent) {
+    if (!parent || parent.node.type.isolating) return false
+    if (parent.node.content.length > 1 || parent.node.type.canBeEmpty) break
+  }
   return {
     changes: {from: plot.before, to: plot.after, fit: true},
     selection: (cx, changes) => GardSelection.near(cx, changes.mapPos(state.selection.head), dir, dir),
