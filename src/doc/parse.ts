@@ -27,7 +27,7 @@ export namespace parse {
     collapseWhiteSpace?: boolean
     /// Function used in in {@link parse.slice} to determine
     /// whether a given element is open (on either side).
-    isOpen?: (elt: Element) => null | "start" | "end" | "start end"
+    isOpen?: (elt: Element, tag: Plot.Tag) => "" | "start" | "end" | "start end"
     /// The rule set to use. Defaults to the rule set derived from the
     /// schema.
     ruleSet?: parse.Rule.Set
@@ -442,13 +442,12 @@ class ParseContext {
       tag = tag.withMarks(p.addToSet(tag.marks))
       return false
     })
-    let test, open = (this.top.children.length ? 0 : this.top.flags & CxFlag.OpenStart) |
+    let open = (this.top.children.length ? 0 : this.top.flags & CxFlag.OpenStart) |
       (endOfSlice ? this.top.flags & CxFlag.OpenEnd : 0)
-    if ((open && element && this.options.isOpen) && (test = this.options.isOpen(element))) {
-      open &= ~(CxFlag.OpenStart | CxFlag.OpenEnd)
-      if (test == "start") open |= CxFlag.OpenStart
-      else if (test == "end") open |= CxFlag.OpenEnd
-      else if (test == "start end") open |= CxFlag.OpenStart | CxFlag.OpenEnd
+    if (open && element && this.options.isOpen) {
+      let test = this.options.isOpen(element, tag)
+      if (!test || test == "end") open &= ~CxFlag.OpenStart
+      if (!test || test == "start") open &= ~CxFlag.OpenEnd
     }
     this.top = new NodeContext(tag, (element ? CxFlag.Solid : CxFlag.None) | open, this.top)
     return marks
