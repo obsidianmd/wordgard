@@ -752,7 +752,7 @@ export namespace Plot {
     split(atEnd: boolean): Tag<Param> {
       return this.marks.length ? this.withMarks(this.marks.filter(p => {
         let {keepOnSplit} = p.type.spec
-        return keepOnSplit && (keepOnSplit === true || keepOnSplit(this, atEnd))
+        return !(keepOnSplit === false || typeof keepOnSplit == "function" && !keepOnSplit(this, atEnd))
       })) : this
     }
 

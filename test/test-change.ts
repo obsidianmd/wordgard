@@ -25,6 +25,12 @@ function mk(doc: Plot.Doc, changes: readonly ChangeData[]) {
   }))
 }
 
+const IDs = Mark.Type.define<readonly string[]>("IDs", {
+  set: {compare: (a, b) => a < b ? -1 : a > b ? 1 : 0},
+  shape: {attribute: "data-tags", value: v => v.join(" ")}
+})
+let idSchema = Schema.define([Doc, Paragraph, IDs, Strong, Link]), ids = builder(IDs), idDoc = builder(idSchema)
+
 describe("ChangeSet", () => {
   describe("apply", () => {
     function testApply(doc: Plot.Doc, changes: ChangeData[], expect: Plot) {
@@ -91,12 +97,6 @@ describe("ChangeSet", () => {
     it("only adds marks where appropriate", () => {
       testApply(doc(0, p("one"), 1), [{add: Strong}], doc(p(strong("one"))))
     })
-
-    const IDs = Mark.Type.define<readonly string[]>("IDs", {
-      set: {compare: (a, b) => a < b ? -1 : a > b ? 1 : 0},
-      shape: {attribute: "data-tags", value: v => v.join(" ")}
-    })
-    let idSchema = Schema.define([Doc, Paragraph, IDs]), ids = builder(IDs), idDoc = builder(idSchema)
 
     it("can add to a set mark", () => {
       Plot.Doc.noValidate(() => {
@@ -387,6 +387,34 @@ describe("ChangeSet", () => {
         }
       }
     })
+
+    function testComposeMarks(init: Mark.Set, mods: ({add: Mark} | {remove: Mark})[], result: Mark.Set) {
+      let doc = idDoc(p(Leaf.text("x", init))), startDoc = doc
+      let changes: ChangeSet[] = []
+      for (let mod of mods) {
+        let ch = ChangeSet.create(doc, {from: 1, to: 2, ...mod})
+        doc = ch.apply(doc)
+        changes.push(ch)
+      }
+      ist((doc.firstChild as Plot).firstChild!.marks, result, Mark.sameSet)
+      ist(changes.reduce((a, b) => a.compose(b)).apply(startDoc), doc, eq)
+    }
+
+    it("handles chains of simple mark modifications", () => {
+      testComposeMarks([], [{add: Strong}, {remove: Strong}], [])
+      testComposeMarks([Strong], [{remove: Strong}, {add: Strong}, {remove: Strong}, {add: Strong}], [Strong])
+      testComposeMarks([], [{add: Link.of("1")}, {add: Link.of("2")}], [Link.of("2")])
+      testComposeMarks([Link.of("3")], [{add: Link.of("1")}, {add: Link.of("2")}, {remove: Link.of("2")}], [])
+      testComposeMarks([Strong], [{add: Link.of("1")}, {remove: Strong}, {add: Link.of("2")}, {add: Strong}], [Link.of("2"), Strong])
+    })
+
+    it("handles chains of set mark modifications", () => {
+      testComposeMarks([], [{add: IDs.of(["2"])}, {add: IDs.of(["3"])}, {add: IDs.of(["4"])}], [IDs.of(["2", "3", "4"])])
+      testComposeMarks([IDs.of(["1", "2"])], [
+        {remove: IDs.of(["1"])}, {add: IDs.of(["3", "4"])}, {remove: IDs.of(["3"])}
+      ], [IDs.of(["2", "4"])])
+      testComposeMarks([Strong, IDs.of(["1", "2"])], [{add: IDs.of(["3"])}, {remove: IDs.of(["2"])}], [Strong, IDs.of(["1", "3"])])
+    })
   })
 
   describe("transform", () => {
@@ -477,6 +505,26 @@ describe("ChangeSet", () => {
       let d = doc(blockquote(p("x", 0), 1, p("y"))), ch = mk(d, [[close]])
       let ch2 = ch.transform(d, ch) // Both delete the same closing token
       ist(ch2.apply(ch.apply(d)), doc(blockquote(p("x"), p("y"))), eq)
+    })
+
+    it("converges on various combinations of set-valued mark changes", () => {
+      let doc = idDoc(p(ids(["1", "2"], "a")))
+      function markFor(bits: number) {
+        let ids: string[] = []
+        for (let i = 0; i < 4; i++) if (bits & (1 << i)) ids.push(String(i + 1))
+        return IDs.of(ids)
+      }
+      // Bits 0 and 1 of i determine whether the changes add or remove
+      // the mark. Bits 2-5 and 6-9 determine the IDs used in each change.
+      for (let i = 0; i < 1024; i++) {
+        let markA = markFor(i >> 2), markB = markFor(i >> 6)
+        let chA = ChangeSet.create(doc, i & 1 ? {from: 1, to: 2, add: markA} : {from: 1, to: 2, remove: markA})
+        let chB = ChangeSet.create(doc, i & 2 ? {from: 1, to: 2, add: markB} : {from: 1, to: 2, remove: markB})
+        let mapped = ChangeSet.transform(doc, chA, chB)
+        let docAB = mapped.b.apply(chA.apply(doc))
+        let docBA = mapped.a.apply(chB.apply(doc))
+        ist(docAB, docBA, eq)
+      }
     })
   })
 
@@ -594,6 +642,12 @@ describe("ChangeSet", () => {
 
     it("handles removing a mark with parameter", () =>
       test({from: 1, to: 3, remove: Link.of("/")}, doc(p(a("/", "abc")))))
+
+    it("handles adding a set mark", () =>
+      test({from: 1, to: 3, add: IDs.of(["x", "y"])}, idDoc(p("abc"))))
+
+    it("handles removing a set mark", () =>
+      test({from: 1, to: 3, remove: IDs.of(["x"])}, idDoc(p(ids(["x", "y"], "abc")))))
 
     it("can serialize random changes", () => {
       for (let i = 0; i < 200; i++) {

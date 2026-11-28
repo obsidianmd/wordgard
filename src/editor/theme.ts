@@ -60,7 +60,8 @@ export const baseStyles = buildTheme("." + styleID, {
   },
 
   "wg-scroller": {
-    display: "block",
+    display: "flex",
+    alignItems: "stretch",
     height: "100%",
     overflowX: "auto",
     position: "relative",
@@ -69,6 +70,7 @@ export const baseStyles = buildTheme("." + styleID, {
 
   "wg-content": {
     display: "block",
+    flex: "auto",
     margin: 0,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
