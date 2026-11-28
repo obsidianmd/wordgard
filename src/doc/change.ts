@@ -1,9 +1,9 @@
 import {Plot, Node} from "./node"
-import {Mark, subtractSet} from "./mark"
+import {Mark, subtractSet, addSet} from "./mark"
 import {Schema} from "./schema"
 import {Slice, SliceWalker, Token} from "./slice"
 import {Pos} from "./pos"
-import {validate} from "./helper"
+import {validate, compareDeep, eqArray, none} from "./helper"
 import {ValidationError} from "./error"
 
 class BuildContext {
@@ -62,43 +62,157 @@ class Builder implements Pos.Walker, SliceWalker {
   }
 }
 
-type Modification = {add: Mark} | {remove: Mark}
+const enum ModType { Set, Remove, Update }
+
+class SetMark {
+  constructor(readonly mark: Mark) {}
+
+  get type() { return this.mark.type }
+
+  get tag(): ModType.Set { return ModType.Set }
+
+  eq(other: Modification) { return other.tag == ModType.Set && other.mark.eq(this.mark) }
+
+  apply(marks: Mark.Set) { return this.mark.addToSet(marks) }
+
+  toString() { return "+" + this.mark }
+}
+
+class RemoveMark {
+  constructor(readonly type: Mark.Type) {}
+
+  get tag(): ModType.Remove { return ModType.Remove }
+
+  eq(other: Modification) { return other.tag == ModType.Remove && other.type == this.type }
+
+  apply(marks: Mark.Set) { return this.type.removeFromSet(marks) }
+
+  toString() { return "-" + this.type.name }
+}
+
+class UpdateMark<T> {
+  constructor(
+    readonly type: Mark.Type<readonly T[]>,
+    // Plus and minus don't overlap
+    readonly plus: readonly T[],
+    readonly minus: readonly T[]
+  ) {}
+
+  get tag(): ModType.Update { return ModType.Update }
+
+  eq(other: Modification) {
+    return other.tag == ModType.Update && other.type == this.type &&
+      compareDeep(this.plus, other.plus) && compareDeep(this.minus, other.minus)
+  }
+
+  apply(marks: Mark.Set) {
+    if (this.minus.length) marks = this.type.of(this.minus).removeFromSet(marks)
+    if (this.plus.length) marks = this.type.of(this.plus).addToSet(marks)
+    return marks
+  }
+
+  toString() { return (this.plus.length ? `+${this.plus}` : "") + (this.minus.length ? `-${this.minus}` : "") }
+}
+
+type Modification = SetMark | RemoveMark | UpdateMark<unknown>
 
 function applyModifications(modifications: readonly Modification[], marks: Mark.Set, type: Node.Type) {
-  for (const m of modifications) {
-    if ("add" in m) {
-      marks = m.add.addToSet(marks)
+  return modifications.reduce((marks, mod) => mod.apply(marks), marks)
+}
+
+function invertModifications(mods: readonly Modification[], marks: Mark.Set): readonly Modification[] {
+  return mods.map(mod => {
+    if (mod.tag == ModType.Update) return new UpdateMark(mod.type, mod.minus, mod.plus)
+    let known = mod.type.isInSet(marks)
+    return known ? new SetMark(known) : new RemoveMark(mod.type)
+  })
+}
+
+function combineModifications(a: null | readonly Modification[], b: null | readonly Modification[]): null | readonly Modification[] {
+  if (!a) return b
+  if (!b) return a
+  let result = a.slice()
+  for (let mod of b) {
+    let match = result.findIndex(m => m.type == mod.type)
+    if (match < 0) {
+      result.push(mod)
+    } else if (mod.tag == ModType.Update) {
+      let other = result[match] as UpdateMark<unknown>, set = mod.type.set!
+      let plus = addSet(mod.plus, other.plus, set)
+      let minus = addSet(mod.minus, other.minus, set)
+      let shared = plus.filter(p => minus.some(m => set(p, m) == 0))
+      if (shared.length) {
+        plus = subtractSet(plus, shared, set)
+        minus = subtractSet(minus, shared, set)
+      }
+      if (plus.length || minus.length) result[match] = new UpdateMark(mod.type, plus, minus)
+      else result.splice(match, 1)
     } else {
-      marks = m.remove.removeFromSet(marks)
+      result[match] = mod
     }
   }
-  return marks
+  return result.length ? result : null
+}
+
+// Transform sets of modifications across each other. The effect of
+// applying b and then transformMods(a, b) should be the same as the
+// effect of applying a and then b.
+function transformModifications(mods: null | readonly Modification[], over: null | readonly Modification[]) {
+  if (!mods || !over) return mods
+  let result: Modification[] = []
+  scan: for (let mod of mods) {
+    let match = over.find(m => m.type == mod.type)
+    if (!match) {
+      result.push(mod)
+    } else if (mod.tag == ModType.Update && match.tag == ModType.Update) {
+      let plus = subtractSet(subtractSet(mod.plus, match.plus, mod.type.set!), match.minus, mod.type.set!)
+      let minus = subtractSet(subtractSet(mod.minus, match.plus, mod.type.set!), match.minus, mod.type.set!)
+      if (plus.length || minus.length) result.push(new UpdateMark(mod.type, plus, minus))
+    }
+  }
+  return result.length ? result : null
+}
+
+function applyModsToSlice(tokens: readonly Token[], mods: readonly Modification[] | null) {
+  if (!mods) return tokens
+  let content: Token[] = []
+  for (let tok of tokens) {
+    if (tok.tokenType == Token.Type.Open) {
+      content.push(tok.withMarks(applyModifications(mods, tok.marks, tok.type)))
+    } else if (tok.tokenType == Token.Type.Node) {
+      let node = tok.withMarks(applyModifications(mods, tok.marks, tok.type))
+      if (content.length && content[content.length - 1].tokenType == Token.Type.Node)
+        node.pushTo(content as Plot[])
+      else
+        content.push(node)
+    } else {
+      content.push(tok)
+    }
+  }
+  return content
 }
 
 function modificationToJSON(m: Modification): ModificationJSON {
-  return "add" in m ? {add: m.add.name, value: m.add.value} : {remove: m.remove.name, value: m.remove.value}
+  if (m.tag == ModType.Set) return {set: m.type.name, value: m.mark.value}
+  if (m.tag == ModType.Remove) return {remove: m.type.name}
+  let result: {modify: string, plus?: readonly any[], minus?: readonly any[]} = {modify: m.type.name}
+  if (m.plus.length) result.plus = m.plus
+  if (m.minus.length) result.minus = m.minus
+  return result
 }
 
 function modificationFromJSON(schema: Schema, json: ModificationJSON): Modification {
-  let {add, remove} = json as {add?: string, remove?: string}
-  if (typeof add == "string" || typeof remove == "string") {
-    let mark = schema.getMark((add || remove)!)
-    if (!mark) throw new ValidationError(`Unknown mark ${add || remove}`)
-    let value = mark.of(validate(mark.spec.validate, json.value))
-    if (mark) return add ? {add: value} : {remove: value}
-  }
-  throw new ValidationError("Invalid modification JSON")
-}
-
-function compareModifications(a: readonly Modification[], b: readonly Modification[]) {
-  if (a == b) return true
-  if (a.length != b.length) return false
-  for (let i = 0; i < a.length; i++) if (!compareModification(a[i], b[i])) return false
-  return true
-}
-
-function compareModification(a: Modification, b: Modification) {
-  return "add" in a ? "add" in b && a.add.eq(b.add) : "remove" in b && a.remove.eq(b.remove)
+  let {set, remove, modify} = json as any, markName = set || remove || modify
+  if (typeof markName != "string") throw new ValidationError("Invalid modification JSON")
+  let mark = schema.getMark(markName)
+  if (!mark) throw new ValidationError(`Unknown mark ${mark}`)
+  if (set) return new SetMark(mark.of(validate(mark.spec.validate, (json as any).value)))
+  if (remove) return new RemoveMark(mark)
+  let {plus, minus} = json as any
+  if (!mark.set || plus && !Array.isArray(plus) || minus && !Array.isArray(minus))
+    throw new ValidationError("Invalid modification JSON")
+  return new UpdateMark(mark as any, plus ? validate(mark.spec.validate, plus) : [],
+                        minus ? validate(mark.spec.validate, minus) : [])
 }
 
 function isNatNum(value: any): value is number {
@@ -165,7 +279,7 @@ export class ChangeSet {
       if (this.sections[i] != other.sections[i]) return false
     for (let i = 0; i < this.data.length; i++) {
       let a = this.data[i] as any, b = (other as ChangeSet).data[i] as any
-      if (a && !(this.sections[(i << 1) + 1] < 0 ? compareModifications(a, b) : Slice.eq(a, b))) return false
+      if (a && !(this.sections[(i << 1) + 1] < 0 ? eqArray(a, b) : Slice.eq(a, b))) return false
     }
     return true
   }
@@ -231,7 +345,7 @@ export class ChangeSet {
         if (!Array.isArray(elt) || elt.length != 2 || !isNatNum(elt[0]) || !Array.isArray(elt[1]))
           throw new ValidationError("Invalid ChangeSet JSON")
         let [len, val] = elt
-        if (val.length && typeof val[0] == "object" && ("add" in val[0] || "remove" in val[0])) {
+        if (val.length && typeof val[0] == "object" && ("set" in val[0] || "remove" in val[0] || "modify" in val[0])) {
           sections.push(len, -2)
           data.push(val.map(m => modificationFromJSON(schema, m)))
         } else {
@@ -288,7 +402,7 @@ export class ChangeSet {
               ? [Math.max(at, nodePos), Math.min(end, nodePos + node.length)]
               : [nodePos, nodePos + 1]
             if (at < from) addSection(sections, data, from - at, -1, null)
-            addSection(sections, data, to - from, -2, invertMods(mods!, node.tag))
+            addSection(sections, data, to - from, -2, invertModifications(mods!, node.tag.marks))
             at = to
           }
         })
@@ -511,13 +625,8 @@ export class ChangeSet {
     for (let i = 0, iS = 0, pos = 0; i < this.data.length; i++) {
       let len = this.sections[iS++], ins = this.sections[iS++], data = this.data[i]
       let text = ""
-      if (ins >= 0) {
-        text += data
-      } else if (data) {
-        text += `[${(data as readonly Modification[]).map(mod => {
-          return `${"add" in mod ? "+" + mod.add : "-" + mod.remove}`
-        })}]`
-      }
+      if (ins >= 0) text += data
+      else if (data) text += `[${data}]`
       if (text) result += `${result ? "," : ""}${pos}${len ? `-${pos + len}` : ""}${text}`
       pos += len
     }
@@ -616,7 +725,9 @@ export namespace ChangeSet {
   export type TrackMode = "before" | "after" | "around"
 }
 
-type ModificationJSON = {add: string, value: any} | {remove: string, value: any}
+type ModificationJSON = {set: string, value: any} |
+  {remove: string} |
+  {modify: string, plus?: readonly any[], minus?: readonly any[]}
 
 class ChangeSetBuilder {
   constructor(readonly docLen: number) {}
@@ -706,36 +817,33 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
           throw new ValidationError(`A Change object cannot both ${add ? "add" : "remove"} a mark and replace a range`)
         if (to == null) to = from + 1
         if (add) {
-          let mods: Modification[] = [{add}]
           markableSections(doc, from, to, add.type.spanning, (node, from, to) => {
             if (!doc.schema.markAllowed(add.type, node.type)) return false
             let has = add.type.isInSet(node.tag.marks)
             if (add.type.set) {
-              let modsHere = mods
+              let plus = add.value as readonly unknown[]
               if (has) {
-                let left = subtractSet(add.value as any[], has.value as any[], add.type.set)
-                if (!left.length) return false
-                modsHere = [{add: add.type.of(left)}]
+                plus = subtractSet(add.value as any[], has.value as any[], add.type.set)
+                if (!plus.length) return false
               }
-              section(from, to, -2, modsHere)
+              section(from, to, -2, [new UpdateMark(add.type as any, plus, none)])
             } else if (!has || !has.eq(add)) {
-              section(from, to, -2, mods)
+              section(from, to, -2, [new SetMark(add)])
             }
             return true
           })
         }
         if (remove) {
-          let mods: Modification[] = [{remove}]
           markableSections(doc, from, to, remove.type.spanning, (node, from, to) => {
             if (remove.type.set) {
               let has = remove.type.isInSet(node.tag.marks)
               if (!has) return false
               let left = (remove.value as any[]).filter(a => (has.value as any[]).some(b => remove.type.set!(a, b) == 0))
               if (!left.length) return false
-              section(from, to, -2, left.length == (remove.value as any).length ? mods : [{remove: remove.type.of(left)}])
+              section(from, to, -2, [new UpdateMark(remove.type as any, none, left)])
             } else {
               if (!remove.isInSet(node.tag.marks)) return false
-              section(from, to, -2, mods)
+              section(from, to, -2, [new RemoveMark(remove.type)])
             }
             return true
           })
@@ -776,7 +884,7 @@ function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: bool
     if (a.keep && b.keep) {
       // Move across ranges skipped by both sets.
       let len = Math.min(a.len, b.len)
-      let mods = before ? a.mods : filterMods(a.mods, b.mods)
+      let mods = before ? transformModifications(a.mods, b.mods) : a.mods
       addSection(sections, data, len, mods ? -2 : -1, mods)
       a.forward(len)
       b.forward(len)
@@ -856,7 +964,7 @@ function compose(
     } else {
       let len = Math.min(a.len2, b.len), sectionLen = sections.length
       if (a.keep && b.keep) {
-        let mods = combineMods(a.mods, b.mods)
+        let mods = combineModifications(a.mods, b.mods)
         addSection(sections, data, len, (data ? mods : a.ins == -2 || b.ins == -2) ? -2 : -1, mods, open)
       } else if (a.keep) {
         addSection(sections, data, len, b.off ? 0 : b.ins, b.off ? noTokens : b.tokens, open)
@@ -870,53 +978,6 @@ function compose(
       b.forward(len)
     }
   }
-}
-
-function combineMods(a: null | readonly Modification[], b: null | readonly Modification[]): null | readonly Modification[] {
-  return !a ? b : !b ? a : a.concat(b)
-}
-
-function filterMods(mods: null | readonly Modification[], against: null | readonly Modification[]) {
-  if (!mods || !against) return mods
-  return mods.filter(m => !against!.some(a => modCancels(a, m)))
-}
-
-function modCancels(mod: Modification, other: Modification) {
-  if ("add" in other) {
-    return "add" in mod ? mod.add.type == other.add.type && !mod.add.type.set : mod.remove.eq(other.add)
-  } else {
-    return "add" in mod && mod.add.eq(other.remove)
-  }
-}
-
-function invertMods(mods: readonly Modification[], target: Node.Tag): readonly Modification[] {
-  return mods.map(mod => {
-    if ("remove" in mod) return {add: mod.remove}
-    if (!mod.add.type.set) {
-      let existed = mod.add.type.isInSet(target.marks)
-      if (existed) return {add: existed}
-    }
-    return {remove: mod.add}
-  })
-}
-
-function applyModsToSlice(tokens: readonly Token[], mods: readonly Modification[] | null) {
-  if (!mods) return tokens
-  let content: Token[] = []
-  for (let tok of tokens) {
-    if (tok.tokenType == Token.Type.Open) {
-      content.push(tok.withMarks(applyModifications(mods, tok.marks, tok.type)))
-    } else if (tok.tokenType == Token.Type.Node) {
-      let node = tok.withMarks(applyModifications(mods, tok.marks, tok.type))
-      if (content.length && content[content.length - 1].tokenType == Token.Type.Node)
-        node.pushTo(content as Plot[])
-      else
-        content.push(node)
-    } else {
-      content.push(tok)
-    }
-  }
-  return content
 }
 
 const enum FitFlag {
@@ -1252,7 +1313,7 @@ function addSection(sections: number[], data: SectionData[] | null,
     // Deletion or preserved section that matches the last element in `sections`
     let lastValue = data ? data[data.length - 1] : null
     let match = ins == 0 ? true
-      : value ? lastValue && compareModifications(lastValue as readonly Modification[], value as readonly Modification[])
+      : value ? lastValue && eqArray(lastValue as readonly Modification[], value as readonly Modification[])
       : !lastValue
     if (match) {
       sections[last] += len
